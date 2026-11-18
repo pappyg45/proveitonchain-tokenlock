@@ -1,0 +1,12 @@
+{
+  "name": "tokenlock-integration-tests",
+  "private": true,
+  "type": "module",
+  "description": "App-level integration tests: real Express routing, a Next.js app (app router + middleware), the PHP built-in server with a router, and the Cloudflare worker in Miniflare (workerd).",
+  "scripts": { "test": "node run.mjs" },
+  "dependencies": {
+    "express": "^4.21.2",
+    "express5": "npm:express@^5.1.0",
+    "miniflare": "^4.20250101.0"
+  }
+}
