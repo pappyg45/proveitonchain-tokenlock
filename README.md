@@ -2,7 +2,7 @@
 
 **Zero-trust access for the token era.** An extra layer in front of your login, admin, or API. Only verified token holders get through.
 
-Your content stays on your server. We do the Token check. Built for security teams, AI agents, and mining operations. Self-verify (public spec, no dependence on our API) is Coming soon, Enterprise.
+Your content stays on your server. We do the Token check. Built for security teams, AI agents, and mining operations. Self-verify (public spec, no dependence on our API) is in preview for Enterprise: see [Self-verify (0.3.0)](#self-verify-030-preview).
 
 Visitors click **Sign in with your Token**, sign a one-time message in their wallet (nothing is paid or sent), and get a short-lived pass. Your middleware checks the pass with your secret key on every request to a locked path.
 
@@ -197,6 +197,8 @@ The wallet signature happens once, at sign-in. It gets the visitor (or agent) a 
 
 Paths are matched in canonical form, case-insensitively: query and fragment dropped; percent-decoded **once**; `//` collapsed; trailing `/` dropped. Requests are **rejected with 400 `bad_path`** if the path has a backslash, a control byte, an encoded `/` `\` NUL `%` `.` or `;` (`%2f`, `%5c`, `%00`, `%25`, `%2e`, `%3b`), invalid encoding, any `;` (path parameters) or any `.` or `..` segment. Ambiguous forms are refused rather than resolved, because frameworks and proxies resolve them differently: `/admin/..` is `/` to a URL parser but is served by an `/admin/*` route in Express or a PHP router. So `/ADMIN`, `/admin/`, `//admin` and `/%61dmin` are all `/admin`, while `/admin;x`, `/./admin`, `/admin/..` and `/admin%2f..` are refused. The resource sent to the API, the cache key and the check of the API's answer all use the canonical path lowercased (`resourcePath()`). Test vectors: `test/fixtures/path-vectors.json`.
 
+**Authorization paths are case-insensitive:** `/Admin`, `/ADMIN` and `/admin` are one authorization identity, even if your app routes them to different pages. A rule for `/admin/*` also covers `/ADMIN/x`, and a public carve-out for `/join` also opens `/JOIN`. Don't rely on case to separate protected and public routes.
+
 **If a proxy, CDN or load balancer sits in front of your app**, make sure it passes the path through unchanged, or normalizes it the same way for both TOKENLOCK and the app: TOKENLOCK must see the same path your app routes on. Don't let a proxy decode `%2f`, strip `;params` or resolve `..` *after* the TOKENLOCK check. Put TOKENLOCK in the app (or in the same worker that forwards the request), not in a separate hop that routes on a different form. Keep your app's own routes as specific as the protected patterns, and protect whole prefixes (`/admin/:path*`) rather than single pages. On Cloudflare Workers and in Next.js the platform hands the code an already-parsed URL (dot segments resolved), and the worker forwards that same URL to your origin, so both see the same path.
 
 What our tests do and don't show: the adapter tests (`npm test`, and `test/integration/` with real Express 4 and 5 apps, a Next.js app with middleware, the PHP built-in server with a router, and the Cloudflare worker in Miniflare) check that every alternate URL form is refused or decided on the route the app actually serves. They run against a local copy of the API. They don't establish the security of the hosted verification service or isolation between tenants; an independent security review is on the roadmap.
@@ -222,3 +224,41 @@ An answer counts only if it is complete and says `allowed: true` for **exactly**
 ### API mode
 
 Requests with `Accept: application/json` (and not `text/html`), or under `apiPaths`, get JSON instead of a redirect, for every denial: `401` when there is no pass or it is invalid or expired (sign in again), `403` when signed in but not allowed (route, method, environment, revoked, expired or pending key, organization, entitlement), `400` for a rejected path, `503` when the API can't answer. Body: `{ error, code, reason, correlation_id }`.
+
+## Self-verify (0.3.0, preview)
+
+Run the whole sign-in on your server: you issue the challenge, keep the nonce, verify the wallet signature locally
+(BIP-322 and legacy; XCP Wallet, Horizon, Unisat, Xverse, Leather) and read holdings from a source you choose.
+Spec: [docs/self-verify-spec.md](docs/self-verify-spec.md) · https://proveitonchain.com/docs/self-verify
+
+```js
+import { createChallenge, verifySignIn, verifyLocalPass, fileNonceStore, tokenscanProvider, requireAgreement,
+  proveitonchainProvider, signedPolicy } from '@proveitonchain/tokenlock/self-verify';
+
+const store = fileNonceStore('/var/lib/tokenlock-nonces');            // or redisNonceStore(client) for many servers
+const holdings = requireAgreement([tokenscanProvider(), proveitonchainProvider()]); // fail closed if they disagree
+const cfg = { store, holdings, passSecret: process.env.MY_PASS_SECRET };  // 32+ chars, never sent to us
+
+const c = await createChallenge({ site: 'https://shop.example', assets: ['CLUBTOKEN'], store });
+// … the wallet signs c.message …
+const r = await verifySignIn({ challenge_id: c.challenge_id, address, signature }, cfg);
+if (r.valid) setCookie('tl_pass', r.pass);                              // HttpOnly, Secure
+const v = await verifyLocalPass(cookie, { passSecret: process.env.MY_PASS_SECRET });
+```
+
+Registered keys offline: `signedPolicy({ siteId, secretKey, publicKeys: { kid: key } })` pulls a BIP-340-signed bundle
+(Enterprise or pilot), checks it against the key you pinned from `/.well-known/tokenlock-policy-keys.json`, refreshes
+every 60 s, uses the cached bundle while refreshes fail until it expires (default 600 s), then fails closed. Or use
+`localPolicy(...)` if you keep the policy yourself.
+
+| Mode | You still trust |
+|---|---|
+| our holdings provider | our reading of the chain (and the bundle signer, if used) |
+| tokenscan / your node via `httpJsonProvider` | that source (two sources with `requireAgreement`) |
+| `localPolicy` + your node | nothing outside your servers |
+
+All modes fail closed: lookup errors, an expired or unverifiable policy, replays and bad signatures all deny. The
+`./self-verify` entry bundles the noble cryptography libraries, so there are no extra dependencies to install. PHP:
+`tokenlock/self-verify.php` in the PHP drop-in (it needs the GMP extension), with the same formats. A pass issued by one
+side verifies on the other.
+
