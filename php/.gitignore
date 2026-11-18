@@ -1,0 +1,4 @@
+tokenlock/config.php
+tokenlock/cache/*
+!tokenlock/cache/.htaccess
+!tokenlock/cache/.keep
