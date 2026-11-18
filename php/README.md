@@ -111,6 +111,7 @@ Paths are matched in canonical form, case-insensitively (see Security below), so
 - PHP 7.4 or newer (7.4.33 on A2 / LiteSpeed is fine)
 - `curl` recommended; otherwise `allow_url_fopen` must be on
 - HTTPS on the live site (the cookie is marked Secure)
+- Self-verify only (0.3.0): the GMP extension (`php-gmp`; on cPanel, "Select PHP Version" → Extensions → gmp)
 
 ## Local test
 
@@ -151,3 +152,64 @@ $info = tokenlock_verify_pass($pass, array('path' => '/api/partner/prices', 'met
 | 0.2.1 strict (default), registered keys | 0: never cached |
 | 0.2.1 `'strict' => false`, or 0.2.0 | up to 5 s (`cache_max_s`) |
 | Token-only sites | Holdings checked at sign-in; a pass stays good until it expires (cached up to 60 s) |
+
+## Early block (0.3.0, preview)
+
+`tokenlock/early.php` checks the pass **before your app boots**. WordPress, Laravel and your own code never run for
+visitors it turns away. Install it one of two ways:
+
+```ini
+; php.ini or .user.ini (cPanel: MultiPHP INI Editor)
+auto_prepend_file = "/home/you/public_html/tokenlock/early.php"
+```
+
+```php
+<?php require __DIR__ . '/tokenlock/early.php'; // first line of index.php
+```
+
+Settings go in `config.php`:
+
+```php
+'early' => array(
+    'protect'         => array('/members/*', '/api/*'),          // need a pass (nothing else is touched)
+    'public'          => array('/members/join'),                 // carve-outs inside protect
+    'exclude_paths'   => array('/wp-admin/*', '/wp-login.php'),  // never blocked here
+    'admin_ips'       => array('203.0.113.7', '2001:db8::/48'),  // always let through
+    'deny_ips'        => array('198.51.100.0/24'),               // always 403
+    'trusted_proxies' => array(),                                // X-Forwarded-For is read only from these
+),
+```
+
+- **Order:** CLI → kill switch → bad path (400) → the TOKENLOCK folder and `exclude_paths` → `admin_ips` → `deny_ips` → `public` → `protect`.
+- **You can't lock yourself out.** The sign-in, session and sign-out pages are always reachable, and `exclude_paths`
+  and `admin_ips` win over every other rule. To turn the early block off without editing code, upload an empty file named
+  `tokenlock/early.off` (for example over FTP), or set `TOKENLOCK_EARLY=off`.
+- **Outages and mistakes** follow your existing policy. By default it fails closed with a 503. `fail_open` applies only when
+  strict mode is off. Missing keys or an unsafe strict setup also fail closed, but only on protected paths; the rest of
+  the site keeps working.
+- **What gets blocked:** paths are matched in canonical form, as in `tokenlock_require()`, so `/MEMBERS`, `//members` and
+  `/x/../members` are all protected. A malformed path (`%2f`, …) gets 400 before your app runs.
+
+## Self-verify (0.3.0, preview, Enterprise)
+
+`tokenlock/self-verify.php` runs the whole sign-in on your server. It needs the **GMP** extension. You issue the
+challenge, keep the nonce, verify the wallet signature locally (BIP-322 and legacy: XCP Wallet, Horizon, Unisat, Xverse,
+Leather) and read holdings from a source you choose. The formats are the same as the Node SDK. Spec:
+https://proveitonchain.com/docs/self-verify
+
+```php
+require __DIR__ . '/tokenlock/self-verify.php';
+$store = tokenlock_sv_file_store('/var/lib/tokenlock-nonces');            // outside the web root
+$holdings = tokenlock_sv_require_agreement(array(tokenlock_sv_tokenscan_provider(), tokenlock_sv_proveitonchain_provider()));
+$c = tokenlock_sv_create_challenge(array('site' => 'https://shop.example', 'assets' => array('CLUBTOKEN'), 'store' => $store));
+// … the wallet signs $c['message'] …
+$r = tokenlock_sv_verify_sign_in($_POST, array('store' => $store, 'holdings' => $holdings, 'pass_secret' => getenv('MY_PASS_SECRET')));
+$v = tokenlock_sv_verify_local_pass($_COOKIE['tl_pass'] ?? '', array('pass_secret' => getenv('MY_PASS_SECRET')));
+```
+
+To check registered keys offline, use `tokenlock_sv_signed_policy(array('site_id' => …, 'secret_key' => …, 'public_keys' => array($kid => $key), 'cache_dir' => …))`.
+It caches the BIP-340-signed bundle on disk, refreshes it every 60 s, and rejects rollbacks. If refreshes fail, it keeps
+using the cached bundle until that bundle expires, then fails closed. You can also use `tokenlock_sv_local_policy(...)`.
+
+Tests: `php test/self-verify.php` covers signatures (the 396 shared vectors), the policy bundle, access rules, replay,
+providers, the policy cache, and passes moving between Node and PHP. `node test/early.mjs` tests the early block over HTTP.
