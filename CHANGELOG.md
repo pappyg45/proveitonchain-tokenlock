@@ -6,10 +6,20 @@
 - **Local signature check** `verifyMessageSignature`: BIP-322 simple (P2WPKH, P2SH-P2WPKH, P2TR) and legacy BIP-137 / Electrum (P2PKH, P2SH-P2WPKH, P2WPKH, P2TR). It matches the hosted check on 396 shared vectors.
 - **Nonce stores**: `memoryNonceStore`, `fileNonceStore` (atomic rename), `redisNonceStore` (SET NX PX + GETDEL). Each nonce works once, even when a sign-in fails.
 - **Holdings providers**: `proveitonchainProvider`, `tokenscanProvider`, `httpJsonProvider`, `staticProvider`, `firstAvailable`, `requireAgreement`. All fail closed.
-- **Signed policy bundles**: `verifyPolicyBundle` (BIP-340, pinned `kid`, site, expiry, rollback), `signedPolicy` (refresh 60 s, cached until expiry, then fail closed), `localPolicy`, `evaluate` (same rules as the hosted API, path rules v1).
+- **Signed policy bundles**: `verifyPolicyBundle` (BIP-340, pinned `kid`, site, expiry, rollback), `signedPolicy` (refresh 60 s, cached until expiry, then fail closed), `localPolicy`, `evaluate` (same rules as the hosted API, path rules v1.1).
 - Shared fixtures for Node and PHP: `test/fixtures/sig-vectors.json`, `policy-bundle.json`, `signin-vectors.json`.
+- Includes every 0.2.2 security fix (below).
 - Known limit: while the policy endpoint is down, `signedPolicy` retries on every call after the refresh interval, with no backoff.
 
+
+## 0.2.2 (security: second external review)
+
+- **Path rules v1.1: ambiguous paths are rejected with 400 `bad_path`**, not resolved: any `;` (path parameters), any `.` or `..` segment, and encoded dots or semicolons (`%2e`, `%3b`). In 0.2.1, `/admin/..` was resolved to `/` (unprotected) while Express and PHP routers served it as `/admin`, so a protected prefix could be reached without a pass. Same rules in Express, Next.js, the Cloudflare example, the PHP drop-in and the API.
+- **Cache key collision fixed**: the resource sent to the API, the cache key and the answer check all use one form, the canonical path lowercased (`resourcePath()`). The key also includes the secret key and API (site), method, environment and mode. Every cache hit is checked again against the request; a hit that doesn't match is dropped. Loose mode now refuses an answer that echoes a different resource.
+- **Open redirects through `?next=` fixed**: `safeNext()` allows only a relative path with a single leading `/`; it refuses `//`, `/\`, any backslash, control characters, schemes and encoded variants (decoded up to three times). The Cloudflare and Express example sign-in pages now check `next` in the browser with the same function; the PHP sign-in page and `tokenlock_safe_next()` use the same rules.
+- **Cloudflare example: denials keep their reason** (`route_not_allowed`, `key_revoked`, …) and answer 403, the same as the Node adapters. Only a malformed answer is `incomplete_answer`.
+- Tests: shared `next-vectors.json`; equivalence matrix compares denial reasons, not just status; app-level integration matrix (`test/integration/`: Express 4 and 5, Next.js app router + middleware, PHP built-in server, Cloudflare worker in Miniflare).
+- Docs: proxy/CDN guidance, and what these client-side tests don't establish (hosted-service security, tenant isolation).
 
 ## 0.2.1 (security)
 

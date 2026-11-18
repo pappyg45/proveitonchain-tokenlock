@@ -121,11 +121,11 @@ bring an old pass back to life. Passes are the same in Node and PHP: one side ca
 
 ## 7. Paths
 
-Resources use TOKENLOCK path rules v1, the same as the hosted API and every adapter:
+Resources use TOKENLOCK path rules v1.1, the same as the hosted API and every adapter:
 - `?` and `#` are stripped.
-- These are rejected: backslash, control bytes, `%2f`, `%5c`, `%00` and `%25`.
-- The path is decoded once, `;params` and empty segments are dropped, and `.` and `..` are resolved (going above the root is rejected).
-- Matching ignores case.
+- These are rejected: backslash, control bytes, any `;`, `%2f`, `%5c`, `%00`, `%25`, `%2e` and `%3b`.
+- The path is decoded once and empty segments are dropped. Any `.` or `..` segment is rejected (not resolved).
+- Matching ignores case; the resource is compared in lowercase.
 
 The shared test vectors are in `test/fixtures/path-vectors.json`.
 
