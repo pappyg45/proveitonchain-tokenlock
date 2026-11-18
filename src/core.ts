@@ -5,7 +5,7 @@
  */
 export const DEFAULT_API = 'https://proveitonchain.com';
 export const DEFAULT_COOKIE = 'tokenlock_pass';
-export const VERSION = '0.3.0';
+export const VERSION = '0.3.1';
 
 export interface PassInfo {
   /** True only if the pass is real, unexpired, issued for your site and holds a token your site accepts. */

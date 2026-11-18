@@ -9,8 +9,9 @@ export interface TokenlockNextOptions extends GuardOptions {}
 /**
  * Next.js middleware. In middleware.ts:
  *   export default tokenlock({ protect: ['/members/:path*'], signInPage: '/signin' });
- *   export const config = { matcher: ['/members/:path*'] };
- * Keep config.matcher broad (or omit it): Next's own matcher is case-sensitive, so a narrow matcher can skip '/MEMBERS'.
+ *   export const config = { matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'] };
+ * Keep config.matcher broad (or omit it): Next's own matcher is case-sensitive, so
+ * matcher: ['/members/:path*'] would skip '/MEMBERS'. TOKENLOCK's `protect` decides which paths are locked.
  */
 export function tokenlock(opts: TokenlockNextOptions) {
   const guard = createGuard(opts, 'tokenlock (next)');
