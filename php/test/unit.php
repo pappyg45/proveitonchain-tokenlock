@@ -242,7 +242,7 @@ tokenlock_clear_cache();
 $r = tokenlock_verify_pass($ENT, array('path' => '/api/x', 'method' => 'GET'));
 expect(empty($r['valid']) && $r['code'] === 'key_revoked', '0.2.0: revoked key is denied on the next check');
 eq(in_array('route_not_allowed', tokenlock_forbidden_codes(), true), true, '0.2.0: route denials answer 403, not a sign-in redirect');
-eq(TOKENLOCK_PHP, '0.2.2', 'version 0.2.2');
+eq(TOKENLOCK_PHP, '0.3.0', 'version 0.3.0');
 
 // ---------------------------------------------------------------- 0.2.1 security patch
 echo "0.2.1\n";
