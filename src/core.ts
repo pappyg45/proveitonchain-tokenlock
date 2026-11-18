@@ -5,7 +5,7 @@
  */
 export const DEFAULT_API = 'https://proveitonchain.com';
 export const DEFAULT_COOKIE = 'tokenlock_pass';
-export const VERSION = '0.1.0';
+export const VERSION = '0.1.1';
 
 export interface PassInfo {
   /** True only if the pass is real, unexpired, issued for your site and holds a token your site accepts. */
@@ -37,7 +37,32 @@ export interface ChallengeInfo {
   branding?: { name: string | null; powered_by: boolean } | null;
 }
 
-export interface SignInResult extends PassInfo { pass?: string; usage?: { month: string; signins: number; limit: number; over: boolean } }
+/**
+ * Usage returned with a successful sign-in to a TOKENLOCK site. Plans are priced by monthly active wallets:
+ * distinct wallets that sign in to any of the account's sites in a calendar month (UTC). Sign-ins are unlimited.
+ * Going over never blocks a sign-in; `over` and `note` are informational.
+ */
+export interface SignInUsage {
+  /** Calendar month, YYYY-MM (UTC). */
+  month: string;
+  /** Distinct wallets that signed in to this account's sites this month. */
+  active_wallets: number;
+  /** Active wallets included in the account's plan per month. */
+  limit: number;
+  /** active_wallets / limit, as a whole percent. */
+  pct?: number;
+  /** True when the account is over its monthly active wallets (sign-ins keep working). */
+  over: boolean;
+  /** True when this sign-in was the wallet's first this month (it counted). */
+  new_wallet?: boolean;
+  /** Successful sign-ins to this site this month (informational). */
+  site_signins?: number;
+  /** Always 'unlimited' now. Older servers returned a number of sign-ins this month. */
+  signins: 'unlimited' | number;
+  /** Present when over the limit. */
+  note?: string;
+}
+export interface SignInResult extends PassInfo { pass?: string; usage?: SignInUsage }
 
 export interface ClientOptions {
   /** sk_… from your TOKENLOCK dashboard. Server only. Defaults to process.env.TOKENLOCK_SECRET_KEY. */
