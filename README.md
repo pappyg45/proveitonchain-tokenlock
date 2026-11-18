@@ -144,6 +144,8 @@ await client.request('POST', '/api/v1/gate/verify', { pass });
 
 ## How it stays safe
 
+**Server-side check recommended.** This package checks the pass on your server, so locked content is never sent until we do the Token check. A browser-only setup with `gate.js` that just hides content in the page is a soft gate: the content still reaches the visitor and can be bypassed with an extension or dev tools. Fine for teasers and soft paywalls, not for anything that must stay private.
+
 - The secret key never leaves your server. Passes are checked with it, so a pass made for another site is refused.
 - The pass cookie is HttpOnly, Secure and SameSite=Lax, and the session endpoint refuses requests from other sites.
 - Good checks are cached in memory for at most 60 seconds and never past the pass's expiry.
