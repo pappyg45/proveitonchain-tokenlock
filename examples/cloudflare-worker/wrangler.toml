@@ -4,6 +4,7 @@ compatibility_date = "2026-11-01"
 
 [vars]
 TOKENLOCK_SITE_KEY = "pk_your_site_key"
+TOKENLOCK_ENVIRONMENT = "production"
 # wrangler secret put TOKENLOCK_SECRET_KEY
 
 # Route the Worker in front of your site, e.g.:
