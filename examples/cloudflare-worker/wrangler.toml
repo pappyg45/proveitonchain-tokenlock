@@ -1,0 +1,10 @@
+name = "tokenlock-gate"
+main = "worker.js"
+compatibility_date = "2026-11-01"
+
+[vars]
+TOKENLOCK_SITE_KEY = "pk_your_site_key"
+# wrangler secret put TOKENLOCK_SECRET_KEY
+
+# Route the Worker in front of your site, e.g.:
+# routes = [{ pattern = "yoursite.com/*", zone_name = "yoursite.com" }]
