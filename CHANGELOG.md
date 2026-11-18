@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.2 (docs)
+
+- Docs: corrected strict-mode logging wording.
+
 ## 0.3.1 (docs and examples)
 
 - Next.js quickstart `config.matcher` is now the broad pattern already used in the shipped example (`/((?!_next/static|_next/image|favicon.ico).*)`). TOKENLOCK's `protect` option decides which application paths are locked. A narrow, case-sensitive Next matcher such as `['/members/:path*']` is no longer shown as a copy-and-paste default.
