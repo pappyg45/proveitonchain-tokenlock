@@ -175,10 +175,19 @@ export class TokenlockClient {
     try { res = cleanResource(resource); } catch { return { valid: false, allowed: false, code: 'bad_path', reason: 'Not a valid path.' }; }
     const strict = o.strict ?? this.strict ?? !!res;
     const useCache = (o.cache ?? this.useCache) !== false;
-    const ck = res ? pass + '\n' + (res.method || '') + ' ' + (res.path || '').toLowerCase() + ' ' + (res.environment || '') + (strict ? ' s' : '') : pass + (strict ? '\ns' : '');
-    if (useCache) { const hit = cache.get(ck); if (hit && hit.until > Date.now() && hit.key === this.secretKey) return hit.info; }
+    // One cache entry per (site key, API, pass, mode, method, canonical lowercased path, environment). Every hit is
+    // checked again against this request's resource, so a cached answer can never stand in for another path.
+    const ck = [keyId(this.secretKey, this.apiBase), pass, strict ? 's' : 'l', res?.method || '', res?.path ?? '', res?.environment || ''].join('\n');
+    if (useCache) {
+      const hit = cache.get(ck);
+      if (hit && hit.until > Date.now() && hit.key === this.secretKey) {
+        const again = strict ? strictCheck(hit.info, res) : looseCheck(hit.info, res);
+        if (again.valid) return again;
+        cache.delete(ck);
+      }
+    }
     const info = await this.request<PassInfo>('POST', '/api/v1/gate/verify', { pass, ...(res || {}) });
-    const out = strict ? strictCheck(info, res) : looseCheck(info);
+    const out = strict ? strictCheck(info, res) : looseCheck(info, res);
     if (out.valid && useCache && !(strict && out.access)) remember(ck, pass, this.secretKey, out);
     return out;
   }
@@ -196,39 +205,60 @@ export class TokenlockClient {
 }
 
 /**
- * Canonical request path (TOKENLOCK path rules v1, identical in every adapter and on the server). Strips query and
- * fragment, rejects backslashes, control bytes and encoded '/', '\\', NUL or '%' (no double decoding), decodes once,
- * drops ';params' from each segment, collapses '//', resolves '.' and '..' (above the root = reject) and drops the
- * trailing slash. Case is kept; matching is case-insensitive. Returns null when the path must be rejected.
+ * Canonical request path (TOKENLOCK path rules v1.1, identical in every adapter and on the server). Strips query and
+ * fragment, rejects backslashes, control bytes and encoded '/', '\\', NUL, '%' or '.' (no double decoding), decodes
+ * once, collapses '//' and drops the trailing slash. Ambiguous forms are rejected outright (null, answered with 400)
+ * instead of being resolved: any ';' (path parameters) and any '.' or '..' segment. Frameworks and proxies resolve
+ * those differently, so resolving them here could protect a different path than the one your app serves (for
+ * example '/admin/..'). Case is kept; matching and the resource sent to the API are case-insensitive (see
+ * resourcePath). Returns null when the path must be rejected.
  */
 export function canonicalPath(raw: string | null | undefined): string | null {
   let s = String(raw ?? '');
   if (!s || s.length > 2048) return null;
   s = s.split(/[?#]/)[0];
-  if (/[\u0000-\u001f\u007f\\]/.test(s) || /%(2f|5c|00|25)/i.test(s)) return null;
+  if (/[\u0000-\u001f\u007f\\;]/.test(s) || /%(2f|5c|00|25|2e|3b)/i.test(s)) return null;
   try { s = decodeURIComponent(s); } catch { return null; }
-  if (!s.startsWith('/') || /[\u0000-\u001f\u007f\\]/.test(s)) return null;
+  if (!s.startsWith('/') || /[\u0000-\u001f\u007f\\;]/.test(s)) return null;
   const out: string[] = [];
-  for (let seg of s.split('/')) {
-    seg = seg.split(';')[0];
-    if (seg === '' || seg === '.') continue;
-    if (seg === '..') { if (!out.length) return null; out.pop(); continue; }
-    out.push(seg);
+  for (const seg of s.split('/')) {
+    if (seg === '.' || seg === '..') return null;
+    if (seg !== '') out.push(seg);
   }
   return '/' + out.join('/');
+}
+/** The one form used for the resource sent to the API, the cache key and the answer check: canonical, lowercased. */
+export function resourcePath(raw: string | null | undefined): string | null {
+  const c = canonicalPath(raw);
+  return c === null ? null : c.toLowerCase();
 }
 function cleanResource(r?: Resource): Resource | null {
   if (!r) return null;
   const out: Resource = {};
-  if (typeof r.path === 'string' && r.path) { const c = canonicalPath(r.path); if (!c) throw new TokenlockError('Not a valid path.', 400, 'bad_path'); out.path = c; }
+  if (typeof r.path === 'string' && r.path) { const c = resourcePath(r.path); if (!c) throw new TokenlockError('Not a valid path.', 400, 'bad_path'); out.path = c; }
   if (typeof r.method === 'string' && r.method) out.method = r.method.toUpperCase().slice(0, 10);
   if (typeof r.environment === 'string' && r.environment) out.environment = r.environment.slice(0, 30);
   return Object.keys(out).length ? out : null;
 }
-function looseCheck(info: PassInfo): PassInfo {
+function looseCheck(info: PassInfo, res: Resource | null = null): PassInfo {
   // The server checks the site; double-check the answer is well-formed before trusting it.
   const ok = !!(info && info.valid === true && info.site_id && info.address && info.allowed !== false && info.access?.allowed !== false);
-  return ok ? info : { ...info, valid: false, code: info?.code || info?.access?.reason || 'bad_pass' };
+  if (!ok) return { ...info, valid: false, code: info?.code || info?.access?.reason || 'bad_pass' };
+  // When the answer echoes a resource it must be this request's resource (compared in the same lowercased form).
+  const e: any = (info as any).resource || info.access?.resource;
+  if (res && e && !sameResource(res, e)) return { ...info, valid: false, allowed: false, code: 'resource_mismatch' };
+  return info;
+}
+function sameResource(res: Resource, e: any): boolean {
+  const ep = typeof e?.path === 'string' ? e.path.toLowerCase() : e?.path ?? null;
+  return (res.path ?? null) === ep && (res.method ?? null) === (e?.method ?? null) && (res.environment ?? null) === (e?.environment ?? null);
+}
+/** Cache namespace for one secret key + API (a short non-reversible fingerprint; the full key is also compared on hit). */
+function keyId(key: string | undefined, api: string): string {
+  let h1 = 0x811c9dc5, h2 = 0x01000193;
+  const s = api + '\n' + (key || '');
+  for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); h1 = Math.imul(h1 ^ c, 16777619) >>> 0; h2 = Math.imul(h2 + c, 2246822519) >>> 0; }
+  return api + '#' + h1.toString(16) + h2.toString(16);
 }
 const KNOWN_MODES = ['registered_keys'];
 /** Strict enterprise mode: complete answer, explicit allowed === true, for exactly this resource. Anything else is a no. */
@@ -245,7 +275,7 @@ function strictCheck(info: PassInfo, res: Resource | null): PassInfo {
     if (info.allowed !== true) return deny(info.access?.reason || 'not_allowed');
     const e: any = (info as any).resource || info.access?.resource;
     if (!e) return deny('incomplete_answer');
-    if ((res.path ?? null) !== (e.path ?? null) || (res.method ?? null) !== (e.method ?? null) || (res.environment ?? null) !== (e.environment ?? null)) return deny('resource_mismatch');
+    if (!sameResource(res, e)) return deny('resource_mismatch');
   } else if (info.allowed === false) return deny('not_allowed');
   return info;
 }
@@ -409,8 +439,23 @@ export function checkAdapterOptions(o: { strict?: boolean; failOpen?: boolean; c
   return strict;
 }
 
-/** A safe same-site path to go back to after sign-in (blocks //evil.com and absolute URLs). */
+/**
+ * A safe same-site path to go back to after sign-in, or `fallback` ('/'). Only a relative path that starts with a
+ * single '/' is allowed. Rejected: '//' and '/\\' (other sites), any backslash, control characters, tabs and newlines
+ * (browsers strip them, so '/\t/evil.com' would become '//evil.com'), schemes ('javascript:', 'https://') and anything that still looks like one
+ * of those after decoding up to three times ('/%2f%2fevil.com', '/%5cevil.com'). It has no dependencies, so a sign-in page
+ * can ship it to the browser as `const tlSafeNext = ${safeNext.toString()};`. Same rules as tokenlock_safe_next() in PHP.
+ */
 export function safeNext(v: string | null | undefined, fallback = '/'): string {
-  if (!v || typeof v !== 'string' || !v.startsWith('/') || v.startsWith('//') || v.startsWith('/\\')) return fallback;
-  return v.slice(0, 2000);
+  if (typeof v !== 'string' || !v || v.length > 2000) return fallback;
+  let d = v;
+  for (let i = 0; i < 4; i++) {
+    if (d[0] !== '/' || d[1] === '/' || d[1] === '\\' || /[\u0000-\u001f\u007f-\u009f\\\u2028\u2029]/.test(d)) return fallback;
+    if (!/%[0-9a-f]{2}/i.test(d)) return v;
+    let n: string;
+    try { n = decodeURIComponent(d); } catch { return fallback; }
+    if (n === d) return v;
+    d = n;
+  }
+  return fallback;
 }

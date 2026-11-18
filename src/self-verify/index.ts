@@ -239,7 +239,7 @@ export function localPolicy(get: Partial<Policy> | (() => Partial<Policy> | Prom
 }
 
 // access rule, same as hosted TOKENLOCK (access.evaluate)
-/** Canonical path (TOKENLOCK path rules v1, same as the hosted API and every adapter). null = reject. */
+/** Canonical path (TOKENLOCK path rules v1.1, same as the hosted API and every adapter). null = reject. */
 export function normalizePath(raw: string): string | null { return canonicalPath(raw); }
 /** Case-insensitive route match on a canonical path, same as the hosted API. */
 export function routeMatches(pattern: string, path: string) {
