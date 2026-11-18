@@ -1,57 +1,36 @@
 import { NextResponse, type NextRequest } from 'next/server.js';
-import { TokenlockClient, createMatcher, readPass, safeNext, DEFAULT_COOKIE, FORBIDDEN_CODES, isUnavailable, type Matcher, type PassInfo, type ClientOptions } from './core.js';
-import { exchangePass, signOutCookie, signInRedirect, type SessionOptions } from './session.js';
+import { TokenlockClient, readPass, safeNext, DEFAULT_COOKIE, TokenlockError, type PassInfo, type ClientOptions, type Resource } from './core.js';
+import { exchangePass, signOutCookie, createGuard, type GuardOptions, type SessionOptions } from './session.js';
 
 export * from './core.js';
 
-export interface TokenlockNextOptions extends SessionOptions {
-  /** Paths to lock: '/members/:path*', '/admin', RegExp or a function. */
-  protect: Matcher | Matcher[];
-  /** Your public sign-in page, e.g. '/signin'. Visitors without a pass go there with ?next=<path>. */
-  signInPage: string;
-  /** Paths that are never locked (besides signInPage), e.g. ['/members/public']. */
-  publicPaths?: Matcher | Matcher[];
-  /** Sent with each pass check so registered keys are checked against this environment, e.g. 'production'. */
-  environment?: string;
-  /** Send the request path and method with each pass check (default true). Sites with registered keys enforce them. */
-  checkResource?: boolean;
-  /**
-   * If the TOKENLOCK API can't be reached, let requests that carry a pass cookie through unverified
-   * (req.tokenlock = null, header x-tokenlock: fail-open). Default false = fail closed with 503 "try again".
-   * Only for low-risk content; never for admin areas or APIs.
-   */
-  failOpen?: boolean;
-}
+export interface TokenlockNextOptions extends GuardOptions {}
 
 /**
  * Next.js middleware. In middleware.ts:
  *   export default tokenlock({ protect: ['/members/:path*'], signInPage: '/signin' });
  *   export const config = { matcher: ['/members/:path*'] };
+ * Keep config.matcher broad (or omit it): Next's own matcher is case-sensitive, so a narrow matcher can skip '/MEMBERS'.
  */
 export function tokenlock(opts: TokenlockNextOptions) {
-  const isLocked = createMatcher(opts.protect);
-  const isPublic = opts.publicPaths ? createMatcher(opts.publicPaths) : () => false;
-  const name = opts.cookieName || DEFAULT_COOKIE;
-  let client: TokenlockClient | null = null;
+  const guard = createGuard(opts, 'tokenlock (next)');
   return async function middleware(req: NextRequest) {
-    const path = req.nextUrl.pathname;
-    if (!isLocked(path) || isPublic(path) || createMatcher(opts.signInPage)(path)) return NextResponse.next();
-    client ||= new TokenlockClient(opts);
-    const pass = readPass(req as any, name);
-    let info: PassInfo | null = null;
-    const resource = opts.checkResource === false ? undefined : { path, method: req.method || 'GET', environment: opts.environment };
-    let apiDown = false;
-    if (pass) { try { info = await client.verifyPass(pass, resource); } catch (e) { if (!isUnavailable(e)) throw e; info = null; apiDown = true; } }
-    if (info?.valid) return NextResponse.next();
-    if (apiDown) {
-      if (opts.failOpen) { const r = NextResponse.next(); r.headers.set('x-tokenlock', 'fail-open'); return r; }
-      return NextResponse.json({ error: 'Could not check your sign-in right now. Try again in a moment.', code: 'tokenlock_unavailable' }, { status: 503, headers: { 'retry-after': '15', 'cache-control': 'no-store' } });
-    }
-    if (info?.access && FORBIDDEN_CODES.includes(info.code || '')) return NextResponse.json({ error: info.reason || 'Not allowed.', code: info.code, correlation_id: info.correlation_id ?? null }, { status: 403 });
-    const res = NextResponse.redirect(signInRedirect(opts.signInPage, req.url, path, req.nextUrl.search));
-    if (pass) res.headers.append('set-cookie', signOutCookie(opts, req.url));
+    const raw = rawPathOf(req);
+    const d = await guard.decide({ rawPath: raw, search: req.nextUrl.search, method: req.method, accept: req.headers.get('accept'), pass: readPass(req as any, guard.cookieName), url: req.url });
+    if (d.action === 'skip') return NextResponse.next();
+    if (d.action === 'allow') { const r = NextResponse.next(); if (d.failOpen) r.headers.set('x-tokenlock', 'fail-open'); return r; }
+    const res = d.action === 'json'
+      ? NextResponse.json(d.body, { status: d.status, headers: { 'cache-control': 'no-store', ...(d.headers || {}) } })
+      : NextResponse.redirect(d.location);
+    if (d.clearCookie) res.headers.append('set-cookie', signOutCookie(opts, req.url));
     return res;
   };
+}
+/** The path as sent (before Next's own decoding), so encoded tricks are seen and rejected. */
+function rawPathOf(req: NextRequest): string {
+  const u = String(req.url || '');
+  const m = u.match(/^[a-z][a-z0-9+.-]*:\/\/[^/?#]*([^?#]*)/i);
+  return (m && m[1]) || req.nextUrl.pathname || '/';
 }
 
 /**
@@ -89,21 +68,33 @@ export function tokenlockRoutes(opts: SessionOptions = {}) {
 }
 
 /**
- * The signed-in visitor, or null. In a Server Component or route handler:
+ * The signed-in visitor (identity only), or null. In a Server Component or route handler:
  *   const pass = await getPass();          // reads cookies() from next/headers
  *   const pass = await getPass(request);   // or from a Request / NextRequest
+ * getPass does NOT check a route. To authorize an action (route, method, environment), pass { path, method } here or
+ * use authorize(), which is strict and uncached.
  */
-export async function getPass(req?: { headers: any; cookies?: any }, opts: ClientOptions & { cookieName?: string } = {}): Promise<PassInfo | null> {
-  const { cookieName, ...c } = opts;
-  const name = cookieName || DEFAULT_COOKIE;
-  let pass: string | null = null;
-  if (req) pass = readPass(req as any, name);
-  else {
-    const { cookies } = await import('next/headers.js');
-    const jar: any = await (cookies as any)();
-    pass = jar.get(name)?.value || null;
-  }
+export async function getPass(req?: { headers: any; cookies?: any }, opts: ClientOptions & { cookieName?: string } & Resource = {}): Promise<PassInfo | null> {
+  const { cookieName, path, method, environment, ...c } = opts;
+  const pass = await passFrom(req, cookieName || DEFAULT_COOKIE);
   if (!pass) return null;
-  const info = await new TokenlockClient(c).verifyPass(pass);
+  const info = await new TokenlockClient(c).verifyPass(pass, path || method || environment ? { path, method, environment } : undefined);
   return info.valid ? info : null;
+}
+/**
+ * Authorize one action, strict and uncached: `const a = await authorize(request, { path: '/api/orders', method: 'POST', environment: 'production' })`.
+ * Returns the pass info when allowed, else { valid:false, allowed:false, code, reason }.
+ */
+export async function authorize(req: { headers: any; cookies?: any } | undefined, resource: Resource, opts: ClientOptions & { cookieName?: string } = {}): Promise<PassInfo> {
+  const { cookieName, ...c } = opts;
+  if (!resource || !resource.path || !resource.method) throw new TokenlockError('authorize() needs { path, method }.', 0, 'resource_required');
+  const pass = await passFrom(req, cookieName || DEFAULT_COOKIE);
+  if (!pass) return { valid: false, allowed: false, code: 'signin_required', reason: 'Sign in first.' };
+  return new TokenlockClient(c).verifyPass(pass, resource, { strict: true, cache: c.cache ?? false });
+}
+async function passFrom(req: { headers: any; cookies?: any } | undefined, name: string): Promise<string | null> {
+  if (req) return readPass(req as any, name);
+  const { cookies } = await import('next/headers.js');
+  const jar: any = await (cookies as any)();
+  return jar.get(name)?.value || null;
 }

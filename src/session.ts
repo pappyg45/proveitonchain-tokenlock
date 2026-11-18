@@ -34,3 +34,72 @@ export function signInRedirect(signInPage: string, requestUrl: string, path: str
   u.searchParams.set('next', safeNext(path + search));
   return u;
 }
+
+// ---------------------------------------------------------------- one decision for every adapter
+import { createMatcher, canonicalPath, checkAdapterOptions, isApiRequest, isUnavailable, denialStatus, FORBIDDEN_CODES, type Matcher } from './core.js';
+
+export interface GuardOptions extends SessionOptions {
+  /** Paths to lock: '/members/:path*', '/admin', RegExp or a function. Matched in canonical form, case-insensitive. */
+  protect: Matcher | Matcher[];
+  /** Your public sign-in page, e.g. '/signin'. */
+  signInPage: string;
+  /** Paths that are never locked (besides signInPage). */
+  publicPaths?: Matcher | Matcher[];
+  /** Sent with each pass check so registered keys are checked against this environment, e.g. 'production'. */
+  environment?: string;
+  /** Send the request path and method with each pass check (default true). Required in strict mode. */
+  checkResource?: boolean;
+  /** Fail open when the TOKENLOCK API is down (default false). Not allowed in strict mode. */
+  failOpen?: boolean;
+  /** Match paths case-sensitively (default false: '/ADMIN' is the same as '/admin'). */
+  caseSensitive?: boolean;
+  /** Paths that always get JSON 401/403 instead of a redirect, e.g. ['/api/:path*']. Accept: application/json also does. */
+  apiPaths?: Matcher | Matcher[];
+}
+export type GuardDecision =
+  | { action: 'skip' }
+  | { action: 'allow'; info: PassInfo | null; failOpen?: true }
+  | { action: 'json'; status: number; body: Record<string, unknown>; clearCookie: boolean; headers?: Record<string, string> }
+  | { action: 'redirect'; location: URL; clearCookie: boolean };
+
+/**
+ * The shared protection decision used by the Express and Next.js adapters (and mirrored by the Cloudflare example and
+ * PHP drop-in), so every adapter answers the same request the same way.
+ */
+export function createGuard(opts: GuardOptions, adapter = 'tokenlock') {
+  const strict = checkAdapterOptions(opts, adapter);
+  const cs = { caseSensitive: !!opts.caseSensitive };
+  const isLocked = createMatcher(opts.protect, cs);
+  const isPublic = opts.publicPaths ? createMatcher(opts.publicPaths, cs) : () => false;
+  const isSignIn = createMatcher(opts.signInPage, cs);
+  const isApiPath = opts.apiPaths ? createMatcher(opts.apiPaths, cs) : undefined;
+  const name = opts.cookieName || DEFAULT_COOKIE;
+  const client = new TokenlockClient({ ...opts, strict });
+  return {
+    strict, client, cookieName: name,
+    async decide(r: { rawPath: string; search?: string; method?: string; accept?: string | null; pass: string | null; url: string }): Promise<GuardDecision> {
+      const canon = canonicalPath(r.rawPath || '/');
+      if (canon === null) return { action: 'json', status: 400, body: { error: 'Not a valid path.', code: 'bad_path', reason: 'Not a valid path.' }, clearCookie: false };
+      if (!isLocked(canon) || isPublic(canon) || isSignIn(canon)) return { action: 'skip' };
+      const api = isApiRequest(r.accept, canon, isApiPath);
+      const method = (r.method || 'GET').toUpperCase();
+      const resource = opts.checkResource === false ? undefined : { path: canon, method, environment: opts.environment };
+      let info: PassInfo | null = null;
+      if (r.pass) {
+        try { info = await client.verifyPass(r.pass, resource, { strict }); }
+        catch (e) {
+          if (!isUnavailable(e)) throw e;
+          if (opts.failOpen && !strict) return { action: 'allow', info: null, failOpen: true };
+          return { action: 'json', status: 503, body: { error: 'Could not check your sign-in right now. Try again in a moment.', code: 'tokenlock_unavailable', reason: 'The verification service did not answer; protected access is denied until it does.' }, clearCookie: false, headers: { 'retry-after': '15' } };
+        }
+        if (info.valid) return { action: 'allow', info };
+      }
+      const code = info ? info.code || 'bad_pass' : 'signin_required';
+      const reason = info?.reason || (info ? 'Not allowed.' : 'Sign in first.');
+      const body = { error: reason, code, reason, correlation_id: info?.correlation_id ?? null };
+      if (api) { const status = denialStatus(code); return { action: 'json', status, body, clearCookie: !!r.pass && status === 401 }; }
+      if (FORBIDDEN_CODES.includes(code)) return { action: 'json', status: 403, body, clearCookie: false };
+      return { action: 'redirect', location: signInRedirect(opts.signInPage, r.url, canon, r.search || ''), clearCookie: !!r.pass };
+    },
+  };
+}
