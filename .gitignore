@@ -3,3 +3,7 @@ dist
 *.tgz
 .env
 .env.*
+test/integration/node_modules/
+test/integration/apps/next/.next/
+test/integration/apps/next/node_modules/
+test/integration/apps/next/next-env.d.ts
