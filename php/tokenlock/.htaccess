@@ -1,0 +1,14 @@
+# Block direct web access to keys, this library, and the verification cache.
+# Includes still work: PHP reads these files from disk, not over HTTP.
+
+<IfModule mod_authz_core.c>
+  <FilesMatch "^(config\.php|config\.sample\.php|tokenlock\.php)$">
+    Require all denied
+  </FilesMatch>
+</IfModule>
+<IfModule !mod_authz_core.c>
+  <FilesMatch "^(config\.php|config\.sample\.php|tokenlock\.php)$">
+    Order allow,deny
+    Deny from all
+  </FilesMatch>
+</IfModule>
