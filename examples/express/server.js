@@ -1,5 +1,6 @@
 import express from 'express';
 import { tokenlock } from '@proveitonchain/tokenlock/express';
+import { safeNext } from '@proveitonchain/tokenlock';
 
 // TOKENLOCK_SECRET_KEY and TOKENLOCK_SITE_KEY come from https://proveitonchain.com/tokenlock/dashboard
 const app = express();
@@ -16,8 +17,10 @@ app.get('/signin', (req, res) => res.send(`<!doctype html><meta charset="utf-8">
   go.onclick = async () => {
     const { pass } = await ProveItGate.signIn();
     const r = await fetch('/api/tokenlock/session', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pass }) });
-    if (r.ok) location.href = new URLSearchParams(location.search).get('next') || '/members';
+    // Only same-site paths: ?next=//evil.com, /\\evil.com, javascript:… fall back to '/'.
+    if (r.ok) location.assign(tlSafeNext(new URLSearchParams(location.search).get('next') || '/members'));
   };
+  const tlSafeNext = ${safeNext.toString()};
 </script>`));
 app.get('/members', (req, res) => res.send(`<h1>Welcome in</h1><p>Signed in as ${req.tokenlock.address}</p><a href="/api/tokenlock/signout">Sign out</a>`));
 
