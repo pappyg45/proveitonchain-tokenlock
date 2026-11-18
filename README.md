@@ -2,7 +2,7 @@
 
 **Zero-trust access for the token era.** An extra layer in front of your login, admin, or API. Only verified token holders get through.
 
-Your content stays on your server. We do the Token check. Built for security teams, AI agents, and mining operations. Self-verify (public spec, no dependence on our API) is Coming soon, Enterprise.
+Your content stays on your server. We do the Token check. Built for security teams, AI agents, and mining operations. Self-verify (public spec, no dependence on our API) is in preview for Enterprise: see [Self-verify (0.3.0)](#self-verify-030-preview).
 
 Visitors click **Sign in with your Token**, sign a one-time message in their wallet (nothing is paid or sent), and get a short-lived pass. Your middleware checks the pass with your secret key on every request to a locked path.
 
@@ -222,3 +222,41 @@ An answer counts only if it is complete and says `allowed: true` for **exactly**
 ### API mode
 
 Requests with `Accept: application/json` (and not `text/html`), or under `apiPaths`, get JSON instead of a redirect, for every denial: `401` when there is no pass or it is invalid or expired (sign in again), `403` when signed in but not allowed (route, method, environment, revoked, expired or pending key, organization, entitlement), `400` for a rejected path, `503` when the API can't answer. Body: `{ error, code, reason, correlation_id }`.
+
+## Self-verify (0.3.0, preview)
+
+Run the whole sign-in on your server: you issue the challenge, keep the nonce, verify the wallet signature locally
+(BIP-322 and legacy; XCP Wallet, Horizon, Unisat, Xverse, Leather) and read holdings from a source you choose.
+Spec: [docs/self-verify-spec.md](docs/self-verify-spec.md) · https://proveitonchain.com/docs/self-verify
+
+```js
+import { createChallenge, verifySignIn, verifyLocalPass, fileNonceStore, tokenscanProvider, requireAgreement,
+  proveitonchainProvider, signedPolicy } from '@proveitonchain/tokenlock/self-verify';
+
+const store = fileNonceStore('/var/lib/tokenlock-nonces');            // or redisNonceStore(client) for many servers
+const holdings = requireAgreement([tokenscanProvider(), proveitonchainProvider()]); // fail closed if they disagree
+const cfg = { store, holdings, passSecret: process.env.MY_PASS_SECRET };  // 32+ chars, never sent to us
+
+const c = await createChallenge({ site: 'https://shop.example', assets: ['CLUBTOKEN'], store });
+// … the wallet signs c.message …
+const r = await verifySignIn({ challenge_id: c.challenge_id, address, signature }, cfg);
+if (r.valid) setCookie('tl_pass', r.pass);                              // HttpOnly, Secure
+const v = await verifyLocalPass(cookie, { passSecret: process.env.MY_PASS_SECRET });
+```
+
+Registered keys offline: `signedPolicy({ siteId, secretKey, publicKeys: { kid: key } })` pulls a BIP-340-signed bundle
+(Enterprise or pilot), checks it against the key you pinned from `/.well-known/tokenlock-policy-keys.json`, refreshes
+every 60 s, uses the cached bundle while refreshes fail until it expires (default 600 s), then fails closed. Or use
+`localPolicy(...)` if you keep the policy yourself.
+
+| Mode | You still trust |
+|---|---|
+| our holdings provider | our reading of the chain (and the bundle signer, if used) |
+| tokenscan / your node via `httpJsonProvider` | that source (two sources with `requireAgreement`) |
+| `localPolicy` + your node | nothing outside your servers |
+
+All modes fail closed: lookup errors, an expired or unverifiable policy, replays and bad signatures all deny. The
+`./self-verify` entry bundles the noble cryptography libraries, so there are no extra dependencies to install. PHP:
+`tokenlock/self-verify.php` in the PHP drop-in (it needs the GMP extension), with the same formats. A pass issued by one
+side verifies on the other.
+
