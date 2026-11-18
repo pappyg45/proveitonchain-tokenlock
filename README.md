@@ -120,6 +120,8 @@ await client.request('POST', '/api/v1/gate/verify', { pass });
 | `getPass(req, opts?)` | The verified pass from the request cookie, or `null`. **Identity only** unless you pass `{ path, method, environment }`. Works with Fetch `Request`, `NextRequest`, Express/Node `req`. |
 | `authorize(req, { path, method, environment })` | Strict, uncached check for one action (agent APIs, sensitive operations). `{ valid: true, allowed: true, … }` or `{ valid: false, allowed: false, code, reason }`. |
 | `canonicalPath(path)` | The path used for matching (see Path rules), or `null` to reject. |
+| `resourcePath(path)` | The canonical path lowercased: what is sent to the API, cached and compared with the answer. |
+| `safeNext(v, fallback?)` | A same-site path to go back to after sign-in, else `fallback`. Ship it to the browser as `${safeNext.toString()}`. |
 | `clearCache(pass?)` | Drops every cached answer for that pass (all routes), or everything. |
 | `createChallenge({ siteKey, origin })` | Starts a sign-in: `{ challenge_id, message, assets }`. |
 | `TokenlockClient` | `verifyPass`, `createChallenge`, `signIn`, and `request()` for any `/api/v1` call (sends `Authorization: Bearer sk_…`). |
@@ -191,9 +193,13 @@ info.access; // { mode: 'registered_keys', allowed, reason, key: { id, label, ow
 
 The wallet signature happens once, at sign-in. It gets the visitor (or agent) a **pass**: a signed, expiring bearer token kept in an HttpOnly cookie (or sent by an agent). Each request presents that pass; it is **not** a fresh signature per request. Anyone who steals the pass can use it until it expires or the key is revoked, so keep passes short for agents (`pass_ttl_s`), serve over HTTPS, and never log them. Per-request signing for agent APIs (each request signed by the agent's key over method, path, body hash and a timestamp) is on the roadmap.
 
-### Path rules (the same in every adapter and on the API)
+### Path rules v1.1 (the same in every adapter and on the API)
 
-Paths are matched in canonical form, case-insensitively: query and fragment dropped; percent-decoded **once**; `;params` dropped from each segment; `//` collapsed; `.` and `..` resolved; trailing `/` dropped. Requests are **rejected with 400** if the path has a backslash, a control byte, an encoded `/` `\` NUL or `%` (`%2f`, `%5c`, `%00`, `%25`), invalid encoding, or `..` above the root. So `/ADMIN`, `/admin/`, `//admin`, `/%61dmin`, `/admin;x` and `/./admin` are all `/admin`, and `/admin%2f..` is refused. Test vectors: `test/fixtures/path-vectors.json`.
+Paths are matched in canonical form, case-insensitively: query and fragment dropped; percent-decoded **once**; `//` collapsed; trailing `/` dropped. Requests are **rejected with 400 `bad_path`** if the path has a backslash, a control byte, an encoded `/` `\` NUL `%` `.` or `;` (`%2f`, `%5c`, `%00`, `%25`, `%2e`, `%3b`), invalid encoding, any `;` (path parameters) or any `.` or `..` segment. Ambiguous forms are refused rather than resolved, because frameworks and proxies resolve them differently: `/admin/..` is `/` to a URL parser but is served by an `/admin/*` route in Express or a PHP router. So `/ADMIN`, `/admin/`, `//admin` and `/%61dmin` are all `/admin`, while `/admin;x`, `/./admin`, `/admin/..` and `/admin%2f..` are refused. The resource sent to the API, the cache key and the check of the API's answer all use the canonical path lowercased (`resourcePath()`). Test vectors: `test/fixtures/path-vectors.json`.
+
+**If a proxy, CDN or load balancer sits in front of your app**, make sure it passes the path through unchanged, or normalizes it the same way for both TOKENLOCK and the app: TOKENLOCK must see the same path your app routes on. Don't let a proxy decode `%2f`, strip `;params` or resolve `..` *after* the TOKENLOCK check. Put TOKENLOCK in the app (or in the same worker that forwards the request), not in a separate hop that routes on a different form. Keep your app's own routes as specific as the protected patterns, and protect whole prefixes (`/admin/:path*`) rather than single pages. On Cloudflare Workers and in Next.js the platform hands the code an already-parsed URL (dot segments resolved), and the worker forwards that same URL to your origin, so both see the same path.
+
+What our tests do and don't show: the adapter tests (`npm test`, and `test/integration/` with real Express 4 and 5 apps, a Next.js app with middleware, the PHP built-in server with a router, and the Cloudflare worker in Miniflare) check that every alternate URL form is refused or decided on the route the app actually serves. They run against a local copy of the API. They don't establish the security of the hosted verification service or isolation between tenants; an independent security review is on the roadmap.
 
 Next.js: keep `config.matcher` broad (or leave it out). Next's own matcher is case-sensitive, so `matcher: ['/admin/:path*']` would never run the middleware for `/ADMIN`.
 
