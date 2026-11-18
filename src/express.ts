@@ -1,30 +1,15 @@
-import { TokenlockClient, createMatcher, readPass, safeNext, DEFAULT_COOKIE, FORBIDDEN_CODES, isUnavailable, type Matcher, type PassInfo } from './core.js';
-import { exchangePass, signOutCookie, signInRedirect, type SessionOptions } from './session.js';
+import { readPass, safeNext, type PassInfo } from './core.js';
+import { exchangePass, signOutCookie, createGuard, type GuardOptions } from './session.js';
 
 export * from './core.js';
 
-export interface TokenlockExpressOptions extends SessionOptions {
-  /** Paths to lock: '/members/:path*', '/admin', RegExp or a function. */
-  protect: Matcher | Matcher[];
-  /** Your public sign-in page, e.g. '/signin'. */
-  signInPage: string;
-  publicPaths?: Matcher | Matcher[];
+export interface TokenlockExpressOptions extends GuardOptions {
   /** Pass → cookie endpoint (POST { pass }). Default '/api/tokenlock/session' */
   sessionPath?: string;
   /** Sign-out endpoint. Default '/api/tokenlock/signout' */
   signOutPath?: string;
   /** Behind a proxy, the public origin of your site, e.g. 'https://example.com' (used for cookie and origin checks). */
   publicOrigin?: string;
-  /** Sent with each pass check so registered keys are checked against this environment, e.g. 'production'. */
-  environment?: string;
-  /** Send the request path and method with each pass check (default true). Sites with registered keys enforce them. */
-  checkResource?: boolean;
-  /**
-   * If the TOKENLOCK API can't be reached, let requests that carry a pass cookie through unverified
-   * (req.tokenlock = null, header x-tokenlock: fail-open). Default false = fail closed with 503 "try again".
-   * Only for low-risk content; never for admin areas or APIs.
-   */
-  failOpen?: boolean;
 }
 
 type Req = { method?: string; url?: string; originalUrl?: string; path?: string; headers: Record<string, any>; body?: any; protocol?: string; get?: (h: string) => string | undefined; on?: any; tokenlock?: PassInfo | null; [k: string]: any };
@@ -57,28 +42,23 @@ const redirect = (res: Res, status: number, to: string) => { res.statusCode = st
  * Locked requests get req.tokenlock = { address, assets_held, … }.
  */
 export function tokenlock(opts: TokenlockExpressOptions) {
-  const isLocked = createMatcher(opts.protect);
-  const isPublic = opts.publicPaths ? createMatcher(opts.publicPaths) : () => false;
-  const isSignIn = createMatcher(opts.signInPage);
+  const guard = createGuard(opts, 'tokenlock (express)'); // throws at config time for unsafe strict-mode options
   const sessionPath = opts.sessionPath || '/api/tokenlock/session';
   const signOutPath = opts.signOutPath || '/api/tokenlock/signout';
-  const name = opts.cookieName || DEFAULT_COOKIE;
-  let client: TokenlockClient | null = null;
 
   return async function tokenlockMiddleware(req: Req, res: Res, next: (e?: any) => void) {
     try {
       const raw = req.originalUrl || req.url || '/';
-      const qi = raw.indexOf('?');
+      const qi = raw.search(/[?#]/);
       const path = (qi < 0 ? raw : raw.slice(0, qi)) || '/';
-      const search = qi < 0 ? '' : raw.slice(qi);
+      const search = qi < 0 ? '' : raw.slice(qi).split('#')[0];
       const proto = opts.publicOrigin ? '' : (req.protocol || (req.headers['x-forwarded-proto'] || '').split(',')[0] || 'http');
       const base = opts.publicOrigin || `${proto}://${req.headers.host || 'localhost'}`;
-      const url = base + raw;
-      client ||= new TokenlockClient(opts);
+      const url = base + (raw.startsWith('/') ? raw : '/');
 
       if (path === sessionPath && req.method === 'POST') {
         const body = await readBody(req);
-        const r = await exchangePass(client, opts, { pass: body?.pass, requestUrl: url, originHeader: req.headers.origin });
+        const r = await exchangePass(guard.client, opts, { pass: body?.pass, requestUrl: url, originHeader: req.headers.origin });
         if (r.cookie) addCookie(res, r.cookie);
         return send(res, r.status, r.body);
       }
@@ -86,27 +66,19 @@ export function tokenlock(opts: TokenlockExpressOptions) {
         addCookie(res, signOutCookie(opts, url));
         return redirect(res, 303, safeNext(opts.afterSignOut, '/'));
       }
-      if (!isLocked(path) || isPublic(path) || isSignIn(path)) return next();
-      const pass = readPass(req as any, name);
-      let info: PassInfo | null = null;
-      const resource = opts.checkResource === false ? undefined : { path, method: req.method || 'GET', environment: opts.environment };
-      let apiDown = false;
-      if (pass) { try { info = await client.verifyPass(pass, resource); } catch (e) { if (!isUnavailable(e)) throw e; info = null; apiDown = true; } }
-      if (info?.valid) { req.tokenlock = info; return next(); }
-      if (apiDown) {
-        // Our API couldn't answer. Default: fail closed with a "try again" (the cookie is kept, so the visitor is
-        // back in as soon as we answer). failOpen: let the request through unverified (low-risk content only).
-        if (opts.failOpen) { req.tokenlock = null; res.setHeader('x-tokenlock', 'fail-open'); return next(); }
-        res.setHeader('retry-after', '15');
-        return send(res, 503, { error: 'Could not check your sign-in right now. Try again in a moment.', code: 'tokenlock_unavailable' });
+      const d = await guard.decide({ rawPath: path, search, method: req.method, accept: req.headers.accept, pass: readPass(req as any, guard.cookieName), url });
+      if (d.action === 'skip') return next();
+      if (d.action === 'allow') {
+        req.tokenlock = d.info;
+        if (d.failOpen) res.setHeader('x-tokenlock', 'fail-open');
+        return next();
       }
-      if (info?.access && FORBIDDEN_CODES.includes(info.code || '')) return send(res, 403, { error: info.reason || 'Not allowed.', code: info.code, correlation_id: info.correlation_id ?? null });
-      if (pass) addCookie(res, signOutCookie(opts, url));
-      const to = signInRedirect(opts.signInPage, url, path, search);
-      return redirect(res, 302, to.pathname + to.search);
+      if (d.clearCookie) addCookie(res, signOutCookie(opts, url));
+      if (d.action === 'json') { for (const [k, v] of Object.entries(d.headers || {})) res.setHeader(k, v); return send(res, d.status, d.body); }
+      return redirect(res, 302, d.location.pathname + d.location.search);
     } catch (e) { return next(e); }
   };
 }
 
 /** The signed-in visitor for this request, or null (re-checks the cookie). */
-export { getPass } from './core.js';
+export { getPass, authorize } from './core.js';
