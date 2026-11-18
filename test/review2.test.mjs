@@ -1,4 +1,4 @@
-// Second external review of 0.2.1: cache key collision across path case, open redirects through ?next=, Cloudflare
+// AI-assisted review findings and regression fixes (0.2.1 / 0.2.2): cache key collision across path case, open redirects through ?next=, Cloudflare
 // denial mapping, and path rules v1.1 (ambiguous forms rejected).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
