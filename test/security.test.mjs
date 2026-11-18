@@ -69,8 +69,8 @@ test('express: alternate forms are checked as the canonical route (a key for /ad
   await withServer(mw, async (b) => {
     const c = { cookie: 'tokenlock_pass=' + P };
     assert.equal((await raw(b, '/ADMIN/x', c)).status, 200);
-    assert.equal(calls.at(-1).path, '/ADMIN/x');
-    assert.equal((await raw(b, '/x/../admin/y', c)).status, 200); assert.equal(calls.at(-1).path, '/admin/y');
+    assert.equal(calls.at(-1).path, '/admin/x', 'the resource is the canonical path, lowercased');
+    assert.equal((await raw(b, '/x/../admin/y', c)).status, 400, 'path rules v1.1: dot segments are rejected');
     assert.equal((await raw(b, '/admin%2f..%2fbilling', c)).status, 400);
     assert.equal((await raw(b, '/billing', c)).status, 403);
     assert.equal((await raw(b, '/admin/x', { ...c, method: 'POST' })).status, 403);
