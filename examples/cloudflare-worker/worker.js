@@ -37,7 +37,7 @@ const rawPath = (u) => (String(u).match(/^[a-z][a-z0-9+.-]*:\/\/[^/?#]*([^?#]*)/
  */
 export async function verify(pass, env, resource) {
   if (!pass || !/^pp1\.[\w-]+\.[\w-]+$/.test(pass) || pass.length > 4000) return { ok: false, code: 'bad_pass' };
-  const r = await fetch((env.TOKENLOCK_API || 'https://proveitonchain.com') + '/api/v1/gate/verify', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + env.TOKENLOCK_SECRET_KEY, 'x-tokenlock-sdk': 'cf-worker/0.2.2' }, body: JSON.stringify({ pass, ...(resource || {}) }) });
+  const r = await fetch((env.TOKENLOCK_API || 'https://proveitonchain.com') + '/api/v1/gate/verify', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + env.TOKENLOCK_SECRET_KEY, 'x-tokenlock-sdk': 'cf-worker/0.3.0' }, body: JSON.stringify({ pass, ...(resource || {}) }) });
   if (r.status >= 500) throw new Error('tokenlock_unavailable');
   const v = await r.json().catch(() => null);
   return { ...strictCheck(v, resource), v };
