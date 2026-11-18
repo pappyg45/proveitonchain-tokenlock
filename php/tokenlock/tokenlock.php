@@ -19,7 +19,7 @@
 if (defined('TOKENLOCK_PHP')) {
     return;
 }
-define('TOKENLOCK_PHP', '0.2.2');
+define('TOKENLOCK_PHP', '0.3.0');
 
 class TokenlockException extends Exception
 {
@@ -88,6 +88,8 @@ function tokenlock_defaults()
         'cache' => true,
         // Path prefixes that always get JSON 401/403 (API mode). Accept: application/json also does.
         'api_paths' => array(),
+        // Early block (0.3.0, early.php): allow/deny before your app boots. See early.php for every key.
+        'early' => array(),
     );
 }
 
