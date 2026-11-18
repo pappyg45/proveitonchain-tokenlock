@@ -2,7 +2,7 @@
 
 **Zero-trust access for the token era.** An extra layer in front of your login, admin, or API. Only verified token holders get through.
 
-Your content stays on your server. We do the Token check. Built for security teams, AI agents, and mining operations. Self-verify (public spec, no dependence on our API) is in preview for Enterprise: see [Self-verify (0.3.0)](#self-verify-030-preview).
+Your content stays on your server. We do the Token check. Built for security teams, AI agents, and mining operations. Self-verify (public spec, no dependence on our API) is included in 0.3.0 for Enterprise or pilot sites: see [Self-verify (0.3.0)](#self-verify-030).
 
 Visitors click **Sign in with your Token**, sign a one-time message in their wallet (nothing is paid or sent), and get a short-lived pass. Your middleware checks the pass with your secret key on every request to a locked path.
 
@@ -174,9 +174,9 @@ A successful sign-in (`TokenlockClient.signIn`, `ProveItGate.signIn`) also retur
 
 MIT © Prove It Onchain
 
-## Enterprise access controls (0.2.0)
+## Enterprise access controls (0.3.0)
 
-Sites with **registered keys** turned on (Business and Enterprise) check every request against the key's routes, methods, environment and expiry, and see revocations immediately. Nothing changes for token-only sites.
+Sites with **registered keys** turned on (Business, Enterprise, or a pilot) check every request against the key's routes, methods, environment and expiry. In **strict** mode (the 0.3.0 default) the SDK never caches registered-key answers, so an admin revoke is visible on the next request. A token transfer is noticed on the next holdings re-check (at most `recheck_holdings_s`, 300 seconds by default), not immediately. Organizations are optional unless the site turns on `require_org`. The same site secret verifies passes and manages access, organizations and keys; separate credentials are planned, not shipped. Nothing changes for token-only sites. Full docs: https://proveitonchain.com/docs/enterprise
 
 ```js
 const info = await verifyPass(pass, { secretKey, path: '/api/partner/prices', method: 'GET', environment: 'production' });
@@ -187,7 +187,7 @@ info.access; // { mode: 'registered_keys', allowed, reason, key: { id, label, ow
 - The Express and Next.js middleware send the request path and method with each pass check (set `environment: 'production'` to check environments). An out-of-scope route answers `403` JSON instead of redirecting to sign-in.
 - `correlation_id` matches the entry in your decision log. See [Decision records: retention, modification and purge](#decision-records-retention-modification-and-purge) for where those records live, who can change or purge them, and why retention is not tamper evidence.
 
-## Security model (0.2.1)
+## Security model (0.3.0)
 
 ### Sessions: a bearer pass, not a per-request signature
 
@@ -225,7 +225,7 @@ An answer counts only if it is complete and says `allowed: true` for **exactly**
 
 Requests with `Accept: application/json` (and not `text/html`), or under `apiPaths`, get JSON instead of a redirect, for every denial: `401` when there is no pass or it is invalid or expired (sign in again), `403` when signed in but not allowed (route, method, environment, revoked, expired or pending key, organization, entitlement), `400` for a rejected path, `503` when the API can't answer. Body: `{ error, code, reason, correlation_id }`.
 
-## Self-verify (0.3.0, preview)
+## Self-verify (0.3.0)
 
 Run the whole sign-in on your server: you issue the challenge, keep the nonce, verify the wallet signature locally
 (BIP-322 and legacy; XCP Wallet, Horizon, Unisat, Xverse, Leather) and read holdings from a source you choose.
@@ -266,17 +266,17 @@ side verifies on the other.
 
 This is how the hosted TOKENLOCK service stores decision and access records today (not something the SDK itself stores). Full version: https://proveitonchain.com/docs/enterprise#decision-records
 
-**Where records live.** Access state (settings, organizations, keys, owner names and emails, open requests) lives in Upstash Redis. After each admin change, a durable backup is written to Vercel Blob at an HMAC-hashed path, encrypted with AES-256-GCM under a server-side key. That backup holds state, keys and requests. It does not include the decision log or the admin-action history list. The decision log (authorized, denied, abandoned, and denied pass checks) lives in Upstash Redis only, in a per-site list for each day. Site documents live in Vercel Blob.
+**Where records live.** Access state (settings, organizations, keys, owner names and emails, open requests) lives in Upstash Redis. After each admin change, a durable backup is written to Vercel Blob at an HMAC-hashed path, encrypted with AES-256-GCM. A separate encrypted journal records key and policy changes and is replayed after a restore so a later revoke is not undone by an older snapshot. The backup holds state, keys and requests. It does not include the decision log or the admin-action history list. The decision log records sign-in outcomes, denied pass checks, and successful verifies that reach the API (these count toward the monthly cap). SDK or PHP cache hits and self-verify decisions are not hosted-logged. The log lives in Upstash Redis only, in a per-site list for each day. Site documents live in Vercel Blob.
 
-**Retention by plan** (decision log): 14 days on Free, 30 on Starter, 90 on Pro, 180 on Business and 365 on Enterprise. The Redis keys expire one day after that window. If a site goes over its monthly decision cap, the oldest rows for that day are dropped; the daily counts remain.
+**Retention and caps** (decision log): 14 days / 500 rows a month on Free, 30 / 2,000 on Starter, 90 / 10,000 on Pro, 180 / 25,000 on Business and 365 / 100,000 on Enterprise. The per-day list cap is ceil(monthly/10). The Redis keys expire one day after the retention window. If a site goes over the per-day list cap, the oldest rows for that day are dropped; the daily counts remain. The decisions API returns `monthly_used`, `today_count` and `warnings` at 80% and at the cap.
 
-**Soft deletion.** Deleting a site marks the site document `deleted` with a `deleted_at` time and removes it from your account list, but the document stays in storage. Soft deletion does not purge Redis access state, the encrypted Blob backup, or decision-log keys. Decision-log keys expire with their retention TTL. Access state and the Blob backup have no automatic expiry.
+**Soft deletion.** Deleting a site marks the site document `deleted` with a `deleted_at` time and removes it from your account list, but the document stays in storage. The site's publishable key, secret key and outstanding passes stop working immediately. Soft deletion does not purge Redis access state, the encrypted Blob backup or journal, or decision-log keys. Decision-log keys expire with their retention TTL. Access state, the backup and the journal have no automatic expiry. To request permanent deletion of owner details, backups, journals and residual site records, email gotproof@oplanbtc.com.
 
-**Who can modify or purge them.** You (the site dashboard or the site secret key) can export the decision log (`GET /access/decisions/export`, CSV or JSONL) and can change your settings, keys and organizations. You cannot edit or delete individual decision records; there is no customer API for that. You can soft-delete the site, which hides it from your account but does not erase the records above. Prove It Onchain operators who have the live Redis credentials can read, change or delete any of these Redis keys. Operators who have the Vercel Blob credentials can read the ciphertext of a backup, overwrite it or delete it; operators who also have the backup encryption key can decrypt it. The platform admin token can turn enterprise-access pilot on or off for a site; it is not a decision-log editor.
+**Who can modify or purge them.** You (the site dashboard or the site secret key) can export the decision log (`GET /access/decisions/export`, CSV or JSONL) and can change your settings, keys and organizations. You cannot edit or delete individual decision records; there is no customer API for that. You can soft-delete the site, which hides it from your account and immediately stops its credentials, but does not erase the stored records above. Prove It Onchain operators who have the live Redis credentials can read, change or delete any of these Redis keys. Operators who have the Vercel Blob credentials can read the ciphertext of a backup, overwrite it or delete it; operators who also have the backup encryption key can decrypt it. The platform admin token can turn enterprise-access pilot on or off for a site; it is not a decision-log editor.
 
 **Retention alone is not tamper evidence.** Anyone with the credentials above can change or delete stored records. Entries are not hash-chained, and there is no signed or anchored digest, so a later change would not be evident from the log itself.
 
-**Current mitigations.** Export the log to your own systems. On Business and Enterprise you can opt in to a signed decision webhook so each decision is posted to a URL you control as it happens. A SIEM sink is planned, not shipped.
+**Current mitigations.** Export the log to your own systems (`GET /access/decisions/export` is a read of whatever is still in Redis). On Business and Enterprise you can opt in to a signed decision webhook: each logged decision is POSTed once to your HTTPS URL, HMAC-SHA256 in `x-tokenlock-signature`, 3 second timeout, no retries. Delivery is best-effort, not at-least-once. Webhook retries and a SIEM sink are planned, not shipped. Decision logs are not included in the Blob backup; if Redis is lost, in-window rows may be gone.
 
-**Roadmap (planned, not shipped):** hash-chained log entries with a periodic signed or anchored digest, so a change or purge after the fact would be detectable.
+**Roadmap (planned, not shipped):** hash-chained log entries with a periodic signed or anchored digest; webhook retries and a SIEM sink; separate verify-only, admin, and read-only audit-export credentials (today the same `sk_…` verifies passes and manages access).
 
