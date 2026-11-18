@@ -171,3 +171,95 @@ test('react: renders a button with the default label', async () => {
   const html = renderToStaticMarkup(React.createElement(SignInWithBitcoin, { siteKey: 'pk_x' }));
   assert.match(html, /<button[^>]*>Sign in with your Token<\/button>/);
 });
+
+// ------------------------------------------------ 0.2.0: enterprise access controls
+const ENT_PASS = 'pp1.' + 'E'.repeat(40) + '.' + 'Q'.repeat(43);
+function accessFetch(calls = [], state = { revoked: false }) {
+  return async (url, init = {}) => {
+    const body = init.body ? JSON.parse(init.body) : {};
+    calls.push({ url, body, sdk: init.headers?.['x-tokenlock-sdk'] });
+    const J = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
+    const base = { address: 'bc1qagent', assets_held: ['TOKENLOCK'], site_id: 's1', origin: 'https://example.com', expires_at: future(), correlation_id: 'c0ffee' };
+    const access = (allowed, reason) => ({ mode: 'registered_keys', allowed, reason, key: { id: 'key_1', label: 'bot', owner_type: 'agent', owner_name: 'Ops', org_id: null }, permissions: { routes: ['/api/*'], methods: ['GET'], environments: [] }, key_expires_at: null });
+    if (state.revoked) return J({ valid: false, allowed: false, code: 'key_revoked', reason: 'This key was revoked by the site admin.', ...base, access: access(false, 'key_revoked'), cache_max_s: 0 });
+    if (body.path && !body.path.startsWith('/api/')) return J({ valid: false, allowed: false, code: 'route_not_allowed', reason: 'This key is not allowed on this route.', ...base, access: access(false, 'route_not_allowed'), cache_max_s: 0 });
+    return J({ valid: true, allowed: true, ...base, access: access(true, 'ok'), cache_max_s: 5 });
+  };
+}
+test('0.2.0 verifyPass: sends path/method/environment + SDK header; returns access; cache keyed by resource', async () => {
+  core.clearCache(); const calls = [];
+  const c = new core.TokenlockClient({ secretKey: SK, fetch: accessFetch(calls) });
+  const a = await c.verifyPass(ENT_PASS, { path: '/api/x?q=1', method: 'get', environment: 'production' });
+  assert.equal(a.valid, true); assert.equal(a.access.key.owner_type, 'agent'); assert.equal(a.correlation_id, 'c0ffee');
+  assert.deepEqual({ path: calls[0].body.path, method: calls[0].body.method, environment: calls[0].body.environment }, { path: '/api/x', method: 'GET', environment: 'production' });
+  assert.equal(calls[0].sdk, 'js/0.2.0');
+  const d = await c.verifyPass(ENT_PASS, { path: '/admin', method: 'GET' });
+  assert.equal(d.valid, false); assert.equal(d.code, 'route_not_allowed');
+  assert.equal(calls.length, 2, 'a different resource is not served from cache');
+  await c.verifyPass(ENT_PASS, { path: '/api/x', method: 'GET', environment: 'production' });
+  assert.equal(calls.length, 2, 'same resource within cache_max_s → cached');
+});
+test('0.2.0 revocation: cache honors cache_max_s (5 s), a revoked key fails on the next check after it', async () => {
+  core.clearCache(); const calls = []; const st = { revoked: false };
+  const c = new core.TokenlockClient({ secretKey: SK, fetch: accessFetch(calls, st) });
+  assert.equal((await c.verifyPass(ENT_PASS, { path: '/api/x', method: 'GET' })).valid, true);
+  st.revoked = true;
+  const realNow = Date.now; Date.now = () => realNow() + 5100;
+  try { const r = await c.verifyPass(ENT_PASS, { path: '/api/x', method: 'GET' }); assert.equal(r.valid, false); assert.equal(r.code, 'key_revoked'); }
+  finally { Date.now = realNow; }
+});
+test('0.2.0 functional verifyPass(pass, { secretKey, path, method }) and allowed:false is never valid', async () => {
+  core.clearCache(); const calls = [];
+  const r = await core.verifyPass(ENT_PASS, { secretKey: SK, fetch: accessFetch(calls), path: '/nope', method: 'POST' });
+  assert.equal(r.valid, false); assert.equal(calls[0].body.method, 'POST');
+});
+test('0.2.0 express: path + method sent; out-of-scope route → 403 JSON (no redirect, cookie kept)', async () => {
+  core.clearCache(); const calls = [];
+  const mw = ex.tokenlock({ protect: ['/:path*'], publicPaths: ['/signin'], signInPage: '/signin', secretKey: SK, fetch: accessFetch(calls), environment: 'production' });
+  await withServer(mw, async (b) => {
+    let r = await fetch(b + '/api/data', { headers: { cookie: 'tokenlock_pass=' + ENT_PASS } });
+    assert.equal(r.status, 200);
+    assert.equal(calls.at(-1).body.path, '/api/data'); assert.equal(calls.at(-1).body.method, 'GET'); assert.equal(calls.at(-1).body.environment, 'production');
+    r = await fetch(b + '/admin', { redirect: 'manual', headers: { cookie: 'tokenlock_pass=' + ENT_PASS } });
+    assert.equal(r.status, 403); assert.equal(r.headers.get('set-cookie'), null);
+    const j = await r.json(); assert.equal(j.code, 'route_not_allowed'); assert.equal(j.correlation_id, 'c0ffee');
+  });
+});
+test('0.2.0 backward compatible: token-only answers (no access, no allowed) behave exactly like 0.1.x', async () => {
+  core.clearCache(); const calls = [];
+  const c = new core.TokenlockClient({ secretKey: SK, fetch: mockFetch(calls) });
+  const r = await c.verifyPass(GOOD, { path: '/members', method: 'GET' });
+  assert.equal(r.valid, true); assert.equal(r.access, undefined);
+  await c.verifyPass(GOOD, { path: '/members', method: 'GET' }); assert.equal(calls.length, 1, '60 s cache when the server sends no cache_max_s');
+});
+const DOWN = 'pp1.' + 'D'.repeat(40) + '.' + 'Q'.repeat(43);
+test('0.2.0 availability: API down → express fails closed with 503 + Retry-After, cookie kept; failOpen lets it through', async () => {
+  core.clearCache();
+  const down = async () => { throw new TypeError('fetch failed'); };
+  const mw = ex.tokenlock({ protect: ['/members/:path*'], signInPage: '/signin', secretKey: SK, fetch: down });
+  await withServer(mw, async (b) => {
+    const r = await fetch(b + '/members/x', { redirect: 'manual', headers: { cookie: 'tokenlock_pass=' + DOWN } });
+    assert.equal(r.status, 503); assert.equal(r.headers.get('retry-after'), '15'); assert.equal(r.headers.get('set-cookie'), null);
+    assert.equal((await r.json()).code, 'tokenlock_unavailable');
+    const n = await fetch(b + '/members/x', { redirect: 'manual' }); assert.equal(n.status, 302, 'no pass → still sign-in');
+  });
+  const open = ex.tokenlock({ protect: ['/members/:path*'], signInPage: '/signin', secretKey: SK, fetch: down, failOpen: true });
+  await withServer(open, async (b) => {
+    const r = await fetch(b + '/members/x', { headers: { cookie: 'tokenlock_pass=' + DOWN } });
+    assert.equal(r.status, 200); assert.equal(r.headers.get('x-tokenlock'), 'fail-open'); assert.match(await r.text(), /SECRET CONTENT $/);
+  });
+  // a 5xx from the API counts as unavailable; a "no" (valid:false) never fails open
+  const five = async () => new Response('{"error":"busy","code":"kv_unavailable"}', { status: 503, headers: { 'content-type': 'application/json' } });
+  assert.equal(core.isUnavailable(await new core.TokenlockClient({ secretKey: SK, fetch: five }).verifyPass(DOWN).catch((e) => e)), true);
+  const mw2 = ex.tokenlock({ protect: ['/members/:path*'], signInPage: '/signin', secretKey: SK, fetch: mockFetch(), failOpen: true });
+  await withServer(mw2, async (b) => { const r = await fetch(b + '/members/x', { redirect: 'manual', headers: { cookie: 'tokenlock_pass=' + FORGED } }); assert.equal(r.status, 302); });
+});
+test('0.2.0 availability: next middleware 503 when API down; failOpen passes', async () => {
+  core.clearCache();
+  const down = async () => { throw new TypeError('fetch failed'); };
+  const req = (p) => { const u = new URL('https://example.com' + p); return { url: u.toString(), nextUrl: u, method: 'GET', headers: new Headers({ cookie: 'tokenlock_pass=' + DOWN }), cookies: { get: (n) => (n === 'tokenlock_pass' ? { value: DOWN } : undefined) } }; };
+  const r = await nx.tokenlock({ protect: ['/members/:path*'], signInPage: '/signin', secretKey: SK, fetch: down })(req('/members/a'));
+  assert.equal(r.status, 503);
+  const o = await nx.tokenlock({ protect: ['/members/:path*'], signInPage: '/signin', secretKey: SK, fetch: down, failOpen: true })(req('/members/a'));
+  assert.equal(o.headers.get('x-tokenlock'), 'fail-open');
+});

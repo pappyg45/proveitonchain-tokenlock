@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server.js';
-import { TokenlockClient, createMatcher, readPass, safeNext, DEFAULT_COOKIE, type Matcher, type PassInfo, type ClientOptions } from './core.js';
+import { TokenlockClient, createMatcher, readPass, safeNext, DEFAULT_COOKIE, FORBIDDEN_CODES, isUnavailable, type Matcher, type PassInfo, type ClientOptions } from './core.js';
 import { exchangePass, signOutCookie, signInRedirect, type SessionOptions } from './session.js';
 
 export * from './core.js';
@@ -11,6 +11,16 @@ export interface TokenlockNextOptions extends SessionOptions {
   signInPage: string;
   /** Paths that are never locked (besides signInPage), e.g. ['/members/public']. */
   publicPaths?: Matcher | Matcher[];
+  /** Sent with each pass check so registered keys are checked against this environment, e.g. 'production'. */
+  environment?: string;
+  /** Send the request path and method with each pass check (default true). Sites with registered keys enforce them. */
+  checkResource?: boolean;
+  /**
+   * If the TOKENLOCK API can't be reached, let requests that carry a pass cookie through unverified
+   * (req.tokenlock = null, header x-tokenlock: fail-open). Default false = fail closed with 503 "try again".
+   * Only for low-risk content; never for admin areas or APIs.
+   */
+  failOpen?: boolean;
 }
 
 /**
@@ -29,8 +39,15 @@ export function tokenlock(opts: TokenlockNextOptions) {
     client ||= new TokenlockClient(opts);
     const pass = readPass(req as any, name);
     let info: PassInfo | null = null;
-    if (pass) { try { info = await client.verifyPass(pass); } catch { info = null; } }
+    const resource = opts.checkResource === false ? undefined : { path, method: req.method || 'GET', environment: opts.environment };
+    let apiDown = false;
+    if (pass) { try { info = await client.verifyPass(pass, resource); } catch (e) { if (!isUnavailable(e)) throw e; info = null; apiDown = true; } }
     if (info?.valid) return NextResponse.next();
+    if (apiDown) {
+      if (opts.failOpen) { const r = NextResponse.next(); r.headers.set('x-tokenlock', 'fail-open'); return r; }
+      return NextResponse.json({ error: 'Could not check your sign-in right now. Try again in a moment.', code: 'tokenlock_unavailable' }, { status: 503, headers: { 'retry-after': '15', 'cache-control': 'no-store' } });
+    }
+    if (info?.access && FORBIDDEN_CODES.includes(info.code || '')) return NextResponse.json({ error: info.reason || 'Not allowed.', code: info.code, correlation_id: info.correlation_id ?? null }, { status: 403 });
     const res = NextResponse.redirect(signInRedirect(opts.signInPage, req.url, path, req.nextUrl.search));
     if (pass) res.headers.append('set-cookie', signOutCookie(opts, req.url));
     return res;

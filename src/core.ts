@@ -5,7 +5,7 @@
  */
 export const DEFAULT_API = 'https://proveitonchain.com';
 export const DEFAULT_COOKIE = 'tokenlock_pass';
-export const VERSION = '0.1.1';
+export const VERSION = '0.2.0';
 
 export interface PassInfo {
   /** True only if the pass is real, unexpired, issued for your site and holds a token your site accepts. */
@@ -23,7 +23,29 @@ export interface PassInfo {
   site_id?: string | null;
   issued_at?: string;
   expires_at?: string;
+  /** Present when you passed a resource (path/method/environment) or the site uses registered keys. */
+  allowed?: boolean;
+  /** The sign-in request's id; the same id appears in your decision log. */
+  correlation_id?: string | null;
+  /** Do not cache this answer longer than this many seconds (registered keys: revocation is live). */
+  cache_max_s?: number;
+  /** Enterprise access controls (sites with registered keys turned on). */
+  access?: AccessInfo;
 }
+
+/** Enterprise access controls result for one pass and resource. */
+export interface AccessInfo {
+  mode: 'registered_keys';
+  allowed: boolean;
+  /** ok, not_registered, pending_approval, key_revoked, key_expired, org_not_approved, org_required, entitlement_revoked, not_holder, route_not_allowed, method_not_allowed, environment_not_allowed … */
+  reason: string;
+  key: { id: string; label: string; owner_type: 'org' | 'employee' | 'vendor' | 'agent'; owner_name: string | null; org_id: string | null } | null;
+  permissions: { routes: string[]; methods: string[]; environments: string[] } | null;
+  key_expires_at: string | null;
+  resource?: Resource;
+}
+/** What the visitor is trying to reach. Checked against the key's permissions on sites with registered keys. */
+export interface Resource { path?: string; method?: string; environment?: string }
 
 export interface ChallengeInfo {
   challenge_id: string;
@@ -117,6 +139,7 @@ export class TokenlockClient {
     try {
       const h: Record<string, string> = { accept: 'application/json', 'x-tokenlock-sdk': VERSION, ...headers };
       if (this.secretKey) h.authorization = 'Bearer ' + this.secretKey;
+      h['x-tokenlock-sdk'] = 'js/' + VERSION;
       if (body !== undefined) h['content-type'] = 'application/json';
       const r = await this.fetchImpl(this.apiBase + path, { method, headers: h, body: body === undefined ? undefined : JSON.stringify(body), signal: ctl?.signal });
       const j = (await r.json().catch(() => null)) as any;
@@ -128,17 +151,23 @@ export class TokenlockClient {
     } finally { if (t) clearTimeout(t); }
   }
 
-  /** Check a pass with your secret key. Never throws for a bad pass; throws TokenlockError only if the API can't be reached. */
-  async verifyPass(pass: string | null | undefined): Promise<PassInfo> {
+  /**
+   * Check a pass with your secret key. Never throws for a bad pass; throws TokenlockError only if the API can't be reached.
+   * Give `resource` ({ path, method, environment }) to have the route, method and environment checked too (sites with
+   * registered keys); the answer then has `allowed` and `access`.
+   */
+  async verifyPass(pass: string | null | undefined, resource?: Resource): Promise<PassInfo> {
     if (!this.secretKey) throw new TokenlockError('Missing secret key. Set TOKENLOCK_SECRET_KEY or pass { secretKey }.', 0, 'no_secret_key');
     if (!pass || typeof pass !== 'string' || !/^pp1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(pass) || pass.length > 4000) return { valid: false, code: 'bad_pass', reason: 'Not a valid pass.' };
-    const hit = cache.get(pass);
+    const res = cleanResource(resource);
+    const ck = res ? pass + '\n' + (res.method || '') + ' ' + (res.path || '') + ' ' + (res.environment || '') : pass;
+    const hit = cache.get(ck);
     if (hit && hit.until > Date.now() && hit.key === this.secretKey) return hit.info;
-    const info = await this.request<PassInfo>('POST', '/api/v1/gate/verify', { pass });
+    const info = await this.request<PassInfo>('POST', '/api/v1/gate/verify', { pass, ...(res || {}) });
     // The server checks the site; double-check the answer is well-formed before trusting it.
-    const ok = !!(info && info.valid === true && info.site_id && info.address);
-    const out: PassInfo = ok ? info : { ...info, valid: false, code: info?.code || 'bad_pass' };
-    if (out.valid) remember(pass, this.secretKey, out);
+    const ok = !!(info && info.valid === true && info.site_id && info.address && info.allowed !== false && info.access?.allowed !== false);
+    const out: PassInfo = ok ? info : { ...info, valid: false, code: info?.code || info?.access?.reason || 'bad_pass' };
+    if (out.valid) remember(ck, this.secretKey, out);
     return out;
   }
 
@@ -154,11 +183,20 @@ export class TokenlockClient {
   }
 }
 
-// Small in-memory cache of good verifications: at most 60 s, never past the pass expiry.
+function cleanResource(r?: Resource): Resource | null {
+  if (!r) return null;
+  const out: Resource = {};
+  if (typeof r.path === 'string' && r.path) out.path = r.path.split(/[?#]/)[0].slice(0, 2048);
+  if (typeof r.method === 'string' && r.method) out.method = r.method.toUpperCase().slice(0, 10);
+  if (typeof r.environment === 'string' && r.environment) out.environment = r.environment.slice(0, 30);
+  return Object.keys(out).length ? out : null;
+}
+// Small in-memory cache of good verifications: at most 60 s (or the server's cache_max_s), never past the pass expiry.
 const cache = new Map<string, { until: number; key: string; info: PassInfo }>();
 function remember(pass: string, key: string, info: PassInfo) {
   const exp = Date.parse(info.expires_at || '') || 0;
-  const until = Math.min(Date.now() + 60_000, exp);
+  const maxS = typeof info.cache_max_s === 'number' && info.cache_max_s >= 0 ? Math.min(60, info.cache_max_s) : 60;
+  const until = Math.min(Date.now() + maxS * 1000, exp);
   if (until <= Date.now()) return;
   if (cache.size > 500) cache.delete(cache.keys().next().value as string);
   cache.set(pass, { until, key, info });
@@ -169,8 +207,17 @@ export function clearCache(pass?: string) { if (pass) cache.delete(pass); else c
 let shared: TokenlockClient | null = null;
 const client = (o?: ClientOptions) => (o && Object.keys(o).length ? new TokenlockClient(o) : (shared ||= new TokenlockClient()));
 
-/** Check a pass. `verifyPass(pass, { secretKey })` */
-export function verifyPass(pass: string | null | undefined, opts: ClientOptions = {}): Promise<PassInfo> { return client(opts).verifyPass(pass); }
+/** Check a pass. `verifyPass(pass, { secretKey, path, method, environment })` */
+export function verifyPass(pass: string | null | undefined, opts: ClientOptions & Resource = {}): Promise<PassInfo> {
+  const { path, method, environment, ...c } = opts;
+  return client(c).verifyPass(pass, path || method || environment ? { path, method, environment } : undefined);
+}
+/** True when the error means the TOKENLOCK API couldn't answer (network, timeout, 5xx): not a "no". */
+export function isUnavailable(e: unknown): boolean {
+  return e instanceof TokenlockError && (e.status === 0 || e.status >= 500) && e.code !== 'no_secret_key';
+}
+/** Deny reasons that a new sign-in can't fix: answer 403 instead of sending the visitor to sign in again. */
+export const FORBIDDEN_CODES = ['route_not_allowed', 'method_not_allowed', 'environment_not_allowed', 'bad_path'];
 
 /** Start a sign-in challenge for your site. */
 export function createChallenge(opts: ClientOptions & { origin?: string; passTtlSeconds?: number } = {}): Promise<ChallengeInfo> {
@@ -211,11 +258,11 @@ export function readPass(req: AnyRequest, cookieName = DEFAULT_COOKIE): string |
 }
 
 /** The signed-in visitor for this request, or null. Checks the pass cookie with your secret key. */
-export async function getPass(req: AnyRequest, opts: ClientOptions & { cookieName?: string } = {}): Promise<PassInfo | null> {
-  const { cookieName, ...c } = opts;
+export async function getPass(req: AnyRequest, opts: ClientOptions & { cookieName?: string } & Resource = {}): Promise<PassInfo | null> {
+  const { cookieName, path, method, environment, ...c } = opts;
   const pass = readPass(req, cookieName || DEFAULT_COOKIE);
   if (!pass) return null;
-  const info = await client(c).verifyPass(pass);
+  const info = await client(c).verifyPass(pass, path || method || environment ? { path, method, environment } : undefined);
   return info.valid ? info : null;
 }
 

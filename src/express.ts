@@ -1,4 +1,4 @@
-import { TokenlockClient, createMatcher, readPass, safeNext, DEFAULT_COOKIE, type Matcher, type PassInfo } from './core.js';
+import { TokenlockClient, createMatcher, readPass, safeNext, DEFAULT_COOKIE, FORBIDDEN_CODES, isUnavailable, type Matcher, type PassInfo } from './core.js';
 import { exchangePass, signOutCookie, signInRedirect, type SessionOptions } from './session.js';
 
 export * from './core.js';
@@ -15,6 +15,16 @@ export interface TokenlockExpressOptions extends SessionOptions {
   signOutPath?: string;
   /** Behind a proxy, the public origin of your site, e.g. 'https://example.com' (used for cookie and origin checks). */
   publicOrigin?: string;
+  /** Sent with each pass check so registered keys are checked against this environment, e.g. 'production'. */
+  environment?: string;
+  /** Send the request path and method with each pass check (default true). Sites with registered keys enforce them. */
+  checkResource?: boolean;
+  /**
+   * If the TOKENLOCK API can't be reached, let requests that carry a pass cookie through unverified
+   * (req.tokenlock = null, header x-tokenlock: fail-open). Default false = fail closed with 503 "try again".
+   * Only for low-risk content; never for admin areas or APIs.
+   */
+  failOpen?: boolean;
 }
 
 type Req = { method?: string; url?: string; originalUrl?: string; path?: string; headers: Record<string, any>; body?: any; protocol?: string; get?: (h: string) => string | undefined; on?: any; tokenlock?: PassInfo | null; [k: string]: any };
@@ -79,8 +89,18 @@ export function tokenlock(opts: TokenlockExpressOptions) {
       if (!isLocked(path) || isPublic(path) || isSignIn(path)) return next();
       const pass = readPass(req as any, name);
       let info: PassInfo | null = null;
-      if (pass) { try { info = await client.verifyPass(pass); } catch { info = null; } }
+      const resource = opts.checkResource === false ? undefined : { path, method: req.method || 'GET', environment: opts.environment };
+      let apiDown = false;
+      if (pass) { try { info = await client.verifyPass(pass, resource); } catch (e) { if (!isUnavailable(e)) throw e; info = null; apiDown = true; } }
       if (info?.valid) { req.tokenlock = info; return next(); }
+      if (apiDown) {
+        // Our API couldn't answer. Default: fail closed with a "try again" (the cookie is kept, so the visitor is
+        // back in as soon as we answer). failOpen: let the request through unverified (low-risk content only).
+        if (opts.failOpen) { req.tokenlock = null; res.setHeader('x-tokenlock', 'fail-open'); return next(); }
+        res.setHeader('retry-after', '15');
+        return send(res, 503, { error: 'Could not check your sign-in right now. Try again in a moment.', code: 'tokenlock_unavailable' });
+      }
+      if (info?.access && FORBIDDEN_CODES.includes(info.code || '')) return send(res, 403, { error: info.reason || 'Not allowed.', code: info.code, correlation_id: info.correlation_id ?? null });
       if (pass) addCookie(res, signOutCookie(opts, url));
       const to = signInRedirect(opts.signInPage, url, path, search);
       return redirect(res, 302, to.pathname + to.search);
