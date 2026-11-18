@@ -74,8 +74,12 @@ eq(tokenlock_safe_next('/members?x=1'), '/members?x=1', 'safeNext keeps a same-s
 foreach (array('//evil.com', 'https://evil.com', '/\\evil.com', '', null, 'http://evil.com', '//evil.com/x') as $v) {
     eq(tokenlock_safe_next($v), '/', 'safeNext blocks ' . var_export($v, true));
 }
-eq(tokenlock_safe_next("/holders/\r\nLocation: https://evil.com"), '/holders/Location: https://evil.com', 'safeNext strips CR/LF (path remains same-site)');
-// After stripping CR/LF, "/holders/\r\nLocation: ..." becomes "/holders/Location: https://evil.com" which starts with / and not // — it's still same-site. Good.
+eq(tokenlock_safe_next("/holders/\r\nLocation: https://evil.com"), '/', 'safeNext rejects CR/LF (header injection) instead of stripping it');
+$NV = json_decode(file_get_contents(__DIR__ . '/fixtures/next-vectors.json'), true);
+$bad = array();
+foreach ($NV['allowed'] as $v) { if (tokenlock_safe_next($v) !== $v) { $bad[] = $v; } }
+foreach ($NV['rejected'] as $v) { if (tokenlock_safe_next($v) !== '/') { $bad[] = $v; } }
+eq($bad, array(), 'safeNext matches the shared next vectors (' . (count($NV['allowed']) + count($NV['rejected'])) . ')');
 eq(tokenlock_wants_secure('http://localhost:8080/x'), false, 'http://localhost is not Secure');
 eq(tokenlock_wants_secure('http://127.0.0.1/x'), false, 'http://127.0.0.1 is not Secure');
 eq(tokenlock_wants_secure('https://pepeproject.com'), true, 'https is Secure');
@@ -238,7 +242,7 @@ tokenlock_clear_cache();
 $r = tokenlock_verify_pass($ENT, array('path' => '/api/x', 'method' => 'GET'));
 expect(empty($r['valid']) && $r['code'] === 'key_revoked', '0.2.0: revoked key is denied on the next check');
 eq(in_array('route_not_allowed', tokenlock_forbidden_codes(), true), true, '0.2.0: route denials answer 403, not a sign-in redirect');
-eq(TOKENLOCK_PHP, '0.2.1', 'version 0.2.1');
+eq(TOKENLOCK_PHP, '0.2.2', 'version 0.2.2');
 
 // ---------------------------------------------------------------- 0.2.1 security patch
 echo "0.2.1\n";
@@ -335,6 +339,57 @@ expect(!tokenlock_is_api_request('/x'), '0.2.1: browsers are not API mode');
 tokenlock_configure(array_merge($cfgBase, array('api_paths' => '/api, /v1')));
 expect(tokenlock_is_api_request('/API/x') && tokenlock_is_api_request('/v1'), '0.2.1: api_paths (case-insensitive prefixes)');
 unset($_SERVER['HTTP_ACCEPT']);
+
+echo "second review (cache key, resource case)\n";
+// Token-only site: the API echoes exactly the resource it was sent and there is no 'access' block, so strict answers
+// are cached. 0.2.1 kept case in the resource, so /Admin and /admin were separate entries with case-sensitive echoes.
+$tcalls = array();
+$echo = null;
+tokenlock_configure(array_merge($cfgBase, array(
+    'http_handler' => function ($method, $url, $headers, $body) use (&$tcalls, &$echo, $future) {
+        $j = json_decode($body, true);
+        $tcalls[] = $j;
+        $r = array('path' => isset($j['path']) ? $j['path'] : null, 'method' => isset($j['method']) ? $j['method'] : null, 'environment' => isset($j['environment']) ? $j['environment'] : null);
+        if ($echo) {
+            $r = $echo($r);
+        }
+        return array('status' => 200, 'body' => json_encode(array('valid' => true, 'allowed' => true, 'address' => 'bc1qtest', 'site_id' => 's1', 'expires_at' => $future, 'cache_max_s' => 60, 'resource' => $r)));
+    },
+)));
+tokenlock_clear_cache();
+$a = tokenlock_verify_pass($GOOD, array('path' => '/Admin', 'method' => 'GET'), array('strict' => true));
+$b = tokenlock_verify_pass($GOOD, array('path' => '/admin', 'method' => 'GET'), array('strict' => true));
+expect(!empty($a['valid']) && !empty($b['valid']), 'review2: /Admin then /admin both valid');
+expect(count($tcalls) === 1 && $tcalls[0]['path'] === '/admin', 'review2: one canonical lowercased resource → one API call, one cache entry');
+expect($b['resource']['path'] === '/admin', 'review2: the answer for /admin echoes /admin');
+// key includes method, environment, mode and secret key
+tokenlock_verify_pass($GOOD, array('path' => '/admin', 'method' => 'POST'), array('strict' => true));
+tokenlock_verify_pass($GOOD, array('path' => '/admin', 'method' => 'GET', 'environment' => 'staging'), array('strict' => true));
+tokenlock_verify_pass($GOOD, array('path' => '/admin', 'method' => 'GET'), array('strict' => false));
+expect(count($tcalls) === 4, 'review2: method, environment and mode are part of the cache key');
+tokenlock_verify_pass($GOOD, array('path' => '/ADMIN/', 'method' => 'get'), array('strict' => true));
+expect(count($tcalls) === 4, 'review2: same canonical resource is a cache hit');
+// a cached entry that no longer matches the request is dropped and asked again (revalidated on every hit)
+$ck = $GOOD . "\n" . $cfgBase['api_base'] . "\ns\n" . json_encode(array('path' => '/admin', 'method' => 'GET'));
+$row = tokenlock_cache_get($ck, $SK);
+$row['resource']['path'] = '/public';
+tokenlock_cache_put($ck, $SK, $row);
+$c = tokenlock_verify_pass($GOOD, array('path' => '/admin', 'method' => 'GET'), array('strict' => true));
+expect(!empty($c['valid']) && count($tcalls) === 5 && $c['resource']['path'] === '/admin', 'review2: a cache hit for another resource is not used');
+// an echo for another path is refused in strict and loose mode, an upper-case echo of the same path is fine
+$echo = function ($r) { $r['path'] = '/public'; return $r; };
+foreach (array(true, false) as $st) {
+    tokenlock_clear_cache();
+    $x = tokenlock_verify_pass($GOOD, array('path' => '/admin', 'method' => 'GET'), array('strict' => $st));
+    expect(empty($x['valid']), 'review2: echo for another path refused (strict=' . ($st ? 'on' : 'off') . ')');
+}
+$echo = function ($r) { $r['path'] = strtoupper($r['path']); return $r; };
+tokenlock_clear_cache();
+$x = tokenlock_verify_pass($GOOD, array('path' => '/admin', 'method' => 'GET'), array('strict' => true));
+expect(!empty($x['valid']), 'review2: an upper-case echo of the same path is the same resource');
+$echo = null;
+expect(tokenlock_resource_path('/Caf%C3%A9/X/') === '/café/x' && tokenlock_resource_path('/admin/..') === null, 'review2: resource path is canonical + lowercased');
+tokenlock_configure($cfgBase);
 
 // cleanup cache dir
 tokenlock_clear_cache();

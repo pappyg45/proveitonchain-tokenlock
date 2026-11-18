@@ -46,9 +46,19 @@ $ready = (strpos($siteKey, 'pk_') === 0 && strlen($siteKey) > 8);
   <script src="https://proveitonchain.com/gate.js" data-site-key="<?php echo tokenlock_h($siteKey); ?>"></script>
   <script>
   (function () {
+    // Same rules as tokenlock_safe_next() and the SDK's safeNext(): same-site relative paths only.
     function safeNext(v, fallback) {
-      if (!v || typeof v !== 'string' || v.charAt(0) !== '/' || v.indexOf('//') === 0 || v.indexOf('/\\') === 0) return fallback;
-      return v.slice(0, 2000);
+      if (typeof v !== 'string' || !v || v.length > 2000) return fallback;
+      var d = v;
+      for (var i = 0; i < 4; i++) {
+        if (d.charAt(0) !== '/' || d.charAt(1) === '/' || d.charAt(1) === '\\' || /[\u0000-\u001f\u007f-\u009f\\\u2028\u2029]/.test(d)) return fallback;
+        if (!/%[0-9a-f]{2}/i.test(d)) return v;
+        var n;
+        try { n = decodeURIComponent(d); } catch (e) { return fallback; }
+        if (n === d) return v;
+        d = n;
+      }
+      return fallback;
     }
     var go = document.getElementById('tokenlock-go');
     var status = document.getElementById('tokenlock-status');
@@ -72,7 +82,7 @@ $ready = (strpos($siteKey, 'pk_') === 0 && strlen($siteKey) > 8);
         });
       }).then(function (res) {
         if (res.ok) {
-          location.href = next;
+          location.assign(next);
           return;
         }
         return res.json().then(function (j) {

@@ -19,7 +19,7 @@
 if (defined('TOKENLOCK_PHP')) {
     return;
 }
-define('TOKENLOCK_PHP', '0.2.1');
+define('TOKENLOCK_PHP', '0.2.2');
 
 class TokenlockException extends Exception
 {
@@ -155,17 +155,35 @@ function tokenlock_header_safe($s)
  */
 function tokenlock_safe_next($v, $fallback = '/')
 {
-    if (!is_string($v) || $v === '' || strpos($v, '/') !== 0 || strpos($v, '//') === 0 || strpos($v, '/\\') === 0) {
+    // Same rules as safeNext() in the JS SDK and the copy in signin.php: a relative path with a single leading '/'.
+    // Rejected: '//', '/\', any backslash, control characters (browsers strip tabs/newlines, so "/\t/evil.com" would
+    // become "//evil.com"), U+0080-U+009F, U+2028/2029, and anything that turns into one of those after decoding up
+    // to three times ('/%2f%2fevil.com', '/%5cevil.com'). Schemes ('javascript:', 'https://') fail the leading '/'.
+    if (!is_string($v) || $v === '' || strlen($v) > 2000) {
         return $fallback;
     }
-    $v = tokenlock_header_safe($v);
-    if (strlen($v) > 2000) {
-        $v = substr($v, 0, 2000);
+    $d = $v;
+    for ($i = 0; $i < 4; $i++) {
+        if ($d[0] !== '/' || (strlen($d) > 1 && ($d[1] === '/' || $d[1] === '\\')) || strpos($d, '\\') !== false
+            || preg_match('/[\x00-\x1f\x7f]|\xc2[\x80-\x9f]|\xe2\x80[\xa8\xa9]/', $d)) {
+            return $fallback;
+        }
+        if (!preg_match('/%[0-9a-fA-F]{2}/', $d)) {
+            return $v;
+        }
+        if (preg_match('/%(?![0-9a-fA-F]{2})/', $d)) {
+            return $fallback; // decodeURIComponent would throw
+        }
+        $n = rawurldecode($d);
+        if (!preg_match('//u', $n)) {
+            return $fallback;
+        }
+        if ($n === $d) {
+            return $v;
+        }
+        $d = $n;
     }
-    if (strpos($v, '/') !== 0 || strpos($v, '//') === 0 || strpos($v, '/\\') === 0) {
-        return $fallback;
-    }
-    return $v;
+    return $fallback;
 }
 
 /** Secure cookies everywhere except plain-http localhost during development. */
@@ -374,6 +392,15 @@ function tokenlock_cache_get($pass, $secret)
     return $row['info'];
 }
 
+/** Remove one cache entry (used when a cached answer no longer checks out). */
+function tokenlock_cache_drop($pass, $secret)
+{
+    $file = tokenlock_cache_path($pass, $secret);
+    if (is_file($file)) {
+        @unlink($file);
+    }
+}
+
 function tokenlock_cache_put($pass, $secret, $info)
 {
     $exp = 0;
@@ -580,10 +607,12 @@ function tokenlock_request($method, $path, $body = null)
  * or the secret key is missing.
  */
 /**
- * Canonical request path (TOKENLOCK path rules v1, identical to the Node SDK, the Cloudflare example and the API):
- * strip query/fragment; reject backslashes, control bytes and encoded '/', '\\', NUL or '%' (no double decoding);
- * percent-decode once; drop ';params' per segment; collapse '//'; resolve '.' and '..' (above the root = reject);
- * drop the trailing slash. Case is kept; matching is case-insensitive. Returns null when the path must be rejected.
+ * Canonical request path (TOKENLOCK path rules v1.1, identical to the Node SDK, the Cloudflare example and the API):
+ * strip query/fragment; reject backslashes, control bytes and encoded '/', '\\', NUL, '%', '.' or ';' (no double
+ * decoding); percent-decode once; collapse '//'; drop the trailing slash. Ambiguous forms are rejected outright
+ * instead of being resolved: any ';' (path parameters) and any '.' or '..' segment, because servers and frameworks
+ * resolve them differently ('/admin/..' is '/' here but may be served by an '/admin' route). Case is kept; matching
+ * and the resource sent to the API are case-insensitive. Returns null when the path must be rejected (answer 400).
  */
 function tokenlock_canonical_path($raw)
 {
@@ -593,7 +622,7 @@ function tokenlock_canonical_path($raw)
     }
     $p = preg_split('/[?#]/', $s);
     $s = $p[0];
-    if (preg_match('/[\x00-\x1f\x7f\\\\]/', $s) || preg_match('/%(2f|5c|00|25)/i', $s)) {
+    if (preg_match('/[\x00-\x1f\x7f\\\\;]/', $s) || preg_match('/%(2f|5c|00|25|2e|3b)/i', $s)) {
         return null;
     }
     if (preg_match('/%(?![0-9a-fA-F]{2})/', $s)) {
@@ -603,28 +632,32 @@ function tokenlock_canonical_path($raw)
     if (!preg_match('//u', $s)) {
         return null; // not valid UTF-8 after decoding (decodeURIComponent would throw)
     }
-    if ($s === '' || $s[0] !== '/' || preg_match('/[\x00-\x1f\x7f\\\\]/', $s)) {
+    if ($s === '' || $s[0] !== '/' || preg_match('/[\x00-\x1f\x7f\\\\;]/', $s)) {
         return null;
     }
     $out = array();
     foreach (explode('/', $s) as $seg) {
-        $semi = strpos($seg, ';');
-        if ($semi !== false) {
-            $seg = substr($seg, 0, $semi);
+        if ($seg === '.' || $seg === '..') {
+            return null;
         }
-        if ($seg === '' || $seg === '.') {
-            continue;
+        if ($seg !== '') {
+            $out[] = $seg;
         }
-        if ($seg === '..') {
-            if (!$out) {
-                return null;
-            }
-            array_pop($out);
-            continue;
-        }
-        $out[] = $seg;
     }
     return '/' . implode('/', $out);
+}
+
+/** The one form used for the resource sent to the API, the cache key and the answer check: canonical, lowercased. */
+function tokenlock_resource_path($raw)
+{
+    $c = tokenlock_canonical_path($raw);
+    return $c === null ? null : tokenlock_lower($c);
+}
+
+/** Lowercase the same way as JavaScript's toLowerCase() where mbstring is available (ASCII-only otherwise). */
+function tokenlock_lower($s)
+{
+    return function_exists('mb_strtolower') ? mb_strtolower((string) $s, 'UTF-8') : strtolower((string) $s);
 }
 
 /**
@@ -655,7 +688,7 @@ function tokenlock_clean_resource($resource)
     }
     $out = array();
     if (!empty($resource['path']) && is_string($resource['path'])) {
-        $c = tokenlock_canonical_path($resource['path']);
+        $c = tokenlock_resource_path($resource['path']);
         if ($c === null) {
             throw new TokenlockException('Not a valid path.', 400, 'bad_path');
         }
@@ -735,6 +768,40 @@ function tokenlock_strict()
     return $strict;
 }
 
+/** Is the echoed resource this request's resource? Paths compare in the lowercased canonical form. */
+function tokenlock_same_resource($res, $e)
+{
+    if (!is_array($e)) {
+        return false;
+    }
+    foreach (array('path', 'method', 'environment') as $k) {
+        $want = isset($res[$k]) ? $res[$k] : null;
+        $got = isset($e[$k]) ? $e[$k] : null;
+        if ($k === 'path' && is_string($got)) {
+            $got = tokenlock_lower($got);
+        }
+        if ($want !== $got) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/** Loose (non-strict) answer check: well-formed, not denied, and any echoed resource is this one. */
+function tokenlock_loose_ok($info, $res)
+{
+    $ok = is_array($info) && !empty($info['valid']) && $info['valid'] === true && !empty($info['site_id']) && !empty($info['address'])
+        && !(array_key_exists('allowed', $info) && $info['allowed'] === false)
+        && !(isset($info['access']['allowed']) && $info['access']['allowed'] === false);
+    if ($ok && $res) {
+        $e = isset($info['resource']) ? $info['resource'] : (isset($info['access']['resource']) ? $info['access']['resource'] : null);
+        if (is_array($e) && !tokenlock_same_resource($res, $e)) {
+            return false;
+        }
+    }
+    return $ok;
+}
+
 /** Strict answer check: complete, allowed === true, for exactly this resource. Returns null if good, else a deny code. */
 function tokenlock_strict_problem($info, $res)
 {
@@ -765,12 +832,8 @@ function tokenlock_strict_problem($info, $res)
         if (!is_array($e)) {
             return 'incomplete_answer';
         }
-        foreach (array('path', 'method', 'environment') as $k) {
-            $want = isset($res[$k]) ? $res[$k] : null;
-            $got = isset($e[$k]) ? $e[$k] : null;
-            if ($want !== $got) {
-                return 'resource_mismatch';
-            }
+        if (!tokenlock_same_resource($res, $e)) {
+            return 'resource_mismatch';
         }
     } elseif (array_key_exists('allowed', $info) && $info['allowed'] === false) {
         return 'not_allowed';
@@ -798,11 +861,17 @@ function tokenlock_verify_pass($pass, $resource = null, $opts = array())
     }
     $strict = array_key_exists('strict', $opts) ? (bool) $opts['strict'] : ($res ? tokenlock_strict() : false);
     $useCache = array_key_exists('cache', $opts) ? (bool) $opts['cache'] : (tokenlock_bool(isset($cfg['cache']) ? $cfg['cache'] : true) !== false);
-    $ck = $pass . "\n" . ($res ? json_encode($res) : '') . ($strict ? "\ns" : '');
+    // One cache entry per (API, secret key, pass, mode, method, canonical lowercased path, environment). The file name
+    // also hashes the secret key. Every hit is checked again against this request's resource before it is used.
+    $ck = $pass . "\n" . $cfg['api_base'] . "\n" . ($strict ? 's' : 'l') . "\n" . ($res ? json_encode($res) : '');
     if ($useCache) {
         $hit = tokenlock_cache_get($ck, $cfg['secret_key']);
         if (is_array($hit)) {
-            return $hit;
+            $again = $strict ? tokenlock_strict_problem($hit, $res) === null : tokenlock_loose_ok($hit, $res);
+            if ($again) {
+                return $hit;
+            }
+            tokenlock_cache_drop($ck, $cfg['secret_key']);
         }
     }
     $info = tokenlock_request('POST', '/api/v1/gate/verify', array_merge(array('pass' => $pass), $res ? $res : array()));
@@ -825,9 +894,7 @@ function tokenlock_verify_pass($pass, $resource = null, $opts = array())
         }
         return $info;
     }
-    $ok = is_array($info) && !empty($info['valid']) && $info['valid'] === true && !empty($info['site_id']) && !empty($info['address'])
-        && !(array_key_exists('allowed', $info) && $info['allowed'] === false)
-        && !(isset($info['access']['allowed']) && $info['access']['allowed'] === false);
+    $ok = tokenlock_loose_ok($info, $res);
     if (!$ok) {
         if (!is_array($info)) {
             $info = array();
