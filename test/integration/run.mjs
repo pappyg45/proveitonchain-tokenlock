@@ -18,7 +18,8 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SDK = process.env.TOKENLOCK_SDK_DIR ? path.resolve(process.env.TOKENLOCK_SDK_DIR) : path.resolve(HERE, '../..');
-const PHP_FILE = process.env.TOKENLOCK_PHP_FILE || path.resolve(SDK, '../tokenlock-php/tokenlock/tokenlock.php');
+// The PHP drop-in: php/ in this repo, else a sibling tokenlock-php checkout.
+const PHP_FILE = process.env.TOKENLOCK_PHP_FILE || [path.join(SDK, 'php/tokenlock/tokenlock.php'), path.resolve(SDK, '../tokenlock-php/tokenlock/tokenlock.php')].find((f) => existsSync(f)) || 'missing';
 const core = await import(path.join(SDK, 'dist/index.js'));
 const ex = await import(path.join(SDK, 'dist/express.js'));
 const SK = 'sk_' + 'i'.repeat(43);
