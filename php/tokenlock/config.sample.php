@@ -47,4 +47,15 @@ return array(
     // 'cache' => true,       // false = check with the API on every request (strict never caches registered keys)
     // 'api_paths' => array(),// e.g. array('/api'): JSON 401/403 instead of a redirect (Accept: application/json also)
     // 'fail_open' => false,  // true = let pass holders in UNVERIFIED when the API is down (turns strict off)
+
+    // 0.3.0 early block (early.php via auto_prepend_file or the first line of index.php). Nothing runs until
+    // 'protect' or 'deny_ips' is set. Kill switch: create tokenlock/early.off or set TOKENLOCK_EARLY=off.
+    // 'early' => array(
+    //     'protect' => array('/members/*'),                 // need a pass
+    //     'public' => array('/members/join'),               // carve-outs inside protect
+    //     'exclude_paths' => array('/wp-admin/*', '/wp-login.php'), // never blocked here (admins can't lock themselves out)
+    //     'admin_ips' => array(),                           // e.g. '203.0.113.7', '2001:db8::/48': always let through
+    //     'deny_ips' => array(),                            // e.g. '198.51.100.0/24': always 403
+    //     'trusted_proxies' => array(),                     // read X-Forwarded-For only from these
+    // ),
 );
