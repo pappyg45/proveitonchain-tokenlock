@@ -185,7 +185,7 @@ info.access; // { mode: 'registered_keys', allowed, reason, key: { id, label, ow
 ```
 
 - The Express and Next.js middleware send the request path and method with each pass check (set `environment: 'production'` to check environments). An out-of-scope route answers `403` JSON instead of redirecting to sign-in.
-- `correlation_id` matches the entry in your decision log.
+- `correlation_id` matches the entry in your decision log. See [Decision records: retention, modification and purge](#decision-records-retention-modification-and-purge) for where those records live, who can change or purge them, and why retention is not tamper evidence.
 
 ## Security model (0.2.1)
 
@@ -261,4 +261,22 @@ All modes fail closed: lookup errors, an expired or unverifiable policy, replays
 `./self-verify` entry bundles the noble cryptography libraries, so there are no extra dependencies to install. PHP:
 `tokenlock/self-verify.php` in the PHP drop-in (it needs the GMP extension), with the same formats. A pass issued by one
 side verifies on the other.
+
+## Decision records: retention, modification and purge
+
+This is how the hosted TOKENLOCK service stores decision and access records today (not something the SDK itself stores). Full version: https://proveitonchain.com/docs/enterprise#decision-records
+
+**Where records live.** Access state (settings, organizations, keys, owner names and emails, open requests) lives in Upstash Redis. After each admin change, a durable backup is written to Vercel Blob at an HMAC-hashed path, encrypted with AES-256-GCM under a server-side key. That backup holds state, keys and requests. It does not include the decision log or the admin-action history list. The decision log (authorized, denied, abandoned, and denied pass checks) lives in Upstash Redis only, in a per-site list for each day. Site documents live in Vercel Blob.
+
+**Retention by plan** (decision log): 14 days on Free, 30 on Starter, 90 on Pro, 180 on Business and 365 on Enterprise. The Redis keys expire one day after that window. If a site goes over its monthly decision cap, the oldest rows for that day are dropped; the daily counts remain.
+
+**Soft deletion.** Deleting a site marks the site document `deleted` with a `deleted_at` time and removes it from your account list, but the document stays in storage. Soft deletion does not purge Redis access state, the encrypted Blob backup, or decision-log keys. Decision-log keys expire with their retention TTL. Access state and the Blob backup have no automatic expiry.
+
+**Who can modify or purge them.** You (the site dashboard or the site secret key) can export the decision log (`GET /access/decisions/export`, CSV or JSONL) and can change your settings, keys and organizations. You cannot edit or delete individual decision records; there is no customer API for that. You can soft-delete the site, which hides it from your account but does not erase the records above. Prove It Onchain operators who have the live Redis credentials can read, change or delete any of these Redis keys. Operators who have the Vercel Blob credentials can read the ciphertext of a backup, overwrite it or delete it; operators who also have the backup encryption key can decrypt it. The platform admin token can turn enterprise-access pilot on or off for a site; it is not a decision-log editor.
+
+**Retention alone is not tamper evidence.** Anyone with the credentials above can change or delete stored records. Entries are not hash-chained, and there is no signed or anchored digest, so a later change would not be evident from the log itself.
+
+**Current mitigations.** Export the log to your own systems. On Business and Enterprise you can opt in to a signed decision webhook so each decision is posted to a URL you control as it happens. A SIEM sink is planned, not shipped.
+
+**Roadmap (planned, not shipped):** hash-chained log entries with a periodic signed or anchored digest, so a change or purge after the fact would be detectable.
 
