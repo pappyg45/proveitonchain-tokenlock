@@ -161,3 +161,17 @@ Unlimited sign-ins on every plan; plans are priced by monthly active wallets (ea
 A successful sign-in (`TokenlockClient.signIn`, `ProveItGate.signIn`) also returns `usage`: `{ month, active_wallets, limit, pct, over, new_wallet, site_signins, signins: 'unlimited', note? }` (type `SignInUsage`). `over` is informational only; sign-ins keep working.
 
 MIT © Prove It Onchain
+
+## Enterprise access controls (0.2.0)
+
+Sites with **registered keys** turned on (Business and Enterprise) check every request against the key's routes, methods, environment and expiry, and see revocations immediately. Nothing changes for token-only sites.
+
+```js
+const info = await verifyPass(pass, { secretKey, path: '/api/partner/prices', method: 'GET', environment: 'production' });
+if (!info.valid) return res.status(403).json({ code: info.code, correlation_id: info.correlation_id });
+info.access; // { mode: 'registered_keys', allowed, reason, key: { id, label, owner_type, owner_name }, permissions, key_expires_at }
+```
+
+- The Express and Next.js middleware now send the request path and method with each pass check (turn off with `checkResource: false`; set `environment: 'production'` to check environments). An out-of-scope route answers `403` JSON instead of redirecting to sign-in.
+- Good answers are cached for at most the server's `cache_max_s` (5 s with registered keys; 60 s otherwise), so a revoked key stops working within seconds. 0.1.x caches up to 60 s.
+- `correlation_id` matches the entry in your decision log.
