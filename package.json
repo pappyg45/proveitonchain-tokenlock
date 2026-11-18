@@ -1,0 +1,125 @@
+{
+  "name": "@proveitonchain/tokenlock",
+  "version": "0.1.0",
+  "description": "Lock pages on your site to people who hold a name or token on Bitcoin. Middleware for Next.js and Express, a React sign-in button, and a tiny client for the TOKENLOCK API.",
+  "license": "MIT",
+  "author": "Prove It Onchain <gotproof@oplanbtc.com>",
+  "homepage": "https://proveitonchain.com/tokenlock",
+  "keywords": [
+    "bitcoin",
+    "token-gate",
+    "tokenlock",
+    "nextjs",
+    "express",
+    "react",
+    "wallet",
+    "sign-in"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./next": {
+      "import": {
+        "types": "./dist/next.d.ts",
+        "default": "./dist/next.js"
+      },
+      "require": {
+        "types": "./dist/next.d.cts",
+        "default": "./dist/next.cjs"
+      }
+    },
+    "./express": {
+      "import": {
+        "types": "./dist/express.d.ts",
+        "default": "./dist/express.js"
+      },
+      "require": {
+        "types": "./dist/express.d.cts",
+        "default": "./dist/express.cjs"
+      }
+    },
+    "./react": {
+      "import": {
+        "types": "./dist/react.d.ts",
+        "default": "./dist/react.js"
+      },
+      "require": {
+        "types": "./dist/react.d.cts",
+        "default": "./dist/react.cjs"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "examples"
+  ],
+  "scripts": {
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsup && node scripts/use-client.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test test/unit.test.mjs",
+    "test:e2e": "node test/e2e.mjs",
+    "prepack": "npm run build"
+  },
+  "peerDependencies": {
+    "next": ">=13.4",
+    "react": ">=17"
+  },
+  "peerDependenciesMeta": {
+    "next": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@noble/curves": "^2.4.0",
+    "@noble/hashes": "^2.4.0",
+    "@types/node": "^22.20.5",
+    "@types/react": "^19.3.0",
+    "next": "^15.5.29",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3"
+  },
+  "typesVersions": {
+    "*": {
+      "next": [
+        "./dist/next.d.ts"
+      ],
+      "express": [
+        "./dist/express.d.ts"
+      ],
+      "react": [
+        "./dist/react.d.ts"
+      ]
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pappyg45/proveitonchain-tokenlock.git"
+  },
+  "bugs": {
+    "url": "https://github.com/pappyg45/proveitonchain-tokenlock/issues"
+  }
+}
