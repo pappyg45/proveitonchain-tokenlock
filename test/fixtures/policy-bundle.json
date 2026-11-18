@@ -1,0 +1,82 @@
+{
+ "note": "Signed by server/policy.js with a throwaway CHALLENGE_SECRET; for interop tests only.",
+ "public_key": "9c48c9aea288a6fa5ddba86ae040eddd2f28a49b0c3e0a1990eeb469f7267ba3",
+ "kid": "9b2834769a87aac8",
+ "now": 1795024800000,
+ "bundle": {
+  "v": 1,
+  "typ": "tokenlock.policy-bundle",
+  "alg": "BIP340",
+  "kid": "9b2834769a87aac8",
+  "payload": "eyJ2IjoxLCJ0eXAiOiJ0b2tlbmxvY2sucG9saWN5Iiwic2l0ZV9pZCI6InNpdGVfZml4dHVyZSIsInNlcSI6NywiaXNzdWVkX2F0IjoiMjAyNi0xMS0xOFQxODowMDowMC4wMDBaIiwiZXhwaXJlc19hdCI6IjIwMjYtMTEtMThUMTg6MTA6MDAuMDAwWiIsIm1vZGUiOiJyZWdpc3RlcmVkX2tleXMiLCJhc3NldHMiOlsiR09UUFJPT0YiXSwiYW55X25hbWUiOmZhbHNlLCJvcmlnaW5zIjpbImh0dHBzOi8vc2hvcC5leGFtcGxlIl0sInNldHRpbmdzIjp7InJlcXVpcmVfb3JnIjpmYWxzZSwiZGVmYXVsdF9wYXNzX3R0bF9zIjo5MDAsImFnZW50X3Bhc3NfdHRsX3MiOjMwMH0sIm9yZ3MiOlt7ImlkIjoib3JnXzEiLCJzdGF0dXMiOiJhcHByb3ZlZCJ9LHsiaWQiOiJvcmdfMiIsInN0YXR1cyI6InN1c3BlbmRlZCJ9XSwicmV2b2tlZF9hc3NldHMiOlsiT0xEVE9LRU4iXSwia2V5cyI6W3siaWQiOiJrZXlfYSIsImFkZHJlc3MiOiJiYzFxZml4dHVyZWFkZHJlc3NhIiwic3RhdHVzIjoiYWN0aXZlIiwib3duZXJfdHlwZSI6ImFnZW50Iiwib3JnX2lkIjoib3JnXzEiLCJhc3NldHMiOltdLCJwZXJtaXNzaW9ucyI6eyJyb3V0ZXMiOlsiL2FwaS8qIl0sIm1ldGhvZHMiOlsiR0VUIl0sImVudmlyb25tZW50cyI6WyJwcm9kdWN0aW9uIl19LCJleHBpcmVzX2F0IjpudWxsLCJwYXNzX3R0bF9zIjpudWxsfSx7ImlkIjoia2V5X3IiLCJhZGRyZXNzIjoiYmMxcWZpeHR1cmVhZGRyZXNzciIsInN0YXR1cyI6InJldm9rZWQiLCJvd25lcl90eXBlIjoidmVuZG9yIiwib3JnX2lkIjoib3JnXzEiLCJhc3NldHMiOltdLCJwZXJtaXNzaW9ucyI6e30sImV4cGlyZXNfYXQiOm51bGwsInBhc3NfdHRsX3MiOm51bGx9XX0",
+  "sig": "9ad3ec194c19f4a7e0eff5f0af3b76f49564ca30afe285eb8a5638a7aded95db4ab2ec8e8dca2d5296cff03583e550144e784420e8be2c0bc4e04136dd5a26d9"
+ },
+ "payload": {
+  "v": 1,
+  "typ": "tokenlock.policy",
+  "site_id": "site_fixture",
+  "seq": 7,
+  "issued_at": "2026-11-18T18:00:00.000Z",
+  "expires_at": "2026-11-18T18:10:00.000Z",
+  "mode": "registered_keys",
+  "assets": [
+   "GOTPROOF"
+  ],
+  "any_name": false,
+  "origins": [
+   "https://shop.example"
+  ],
+  "settings": {
+   "require_org": false,
+   "default_pass_ttl_s": 900,
+   "agent_pass_ttl_s": 300
+  },
+  "orgs": [
+   {
+    "id": "org_1",
+    "status": "approved"
+   },
+   {
+    "id": "org_2",
+    "status": "suspended"
+   }
+  ],
+  "revoked_assets": [
+   "OLDTOKEN"
+  ],
+  "keys": [
+   {
+    "id": "key_a",
+    "address": "bc1qfixtureaddressa",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": "org_1",
+    "assets": [],
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "production"
+     ]
+    },
+    "expires_at": null,
+    "pass_ttl_s": null
+   },
+   {
+    "id": "key_r",
+    "address": "bc1qfixtureaddressr",
+    "status": "revoked",
+    "owner_type": "vendor",
+    "org_id": "org_1",
+    "assets": [],
+    "permissions": {},
+    "expires_at": null,
+    "pass_ttl_s": null
+   }
+  ]
+ }
+}
