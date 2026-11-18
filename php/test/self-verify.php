@@ -93,7 +93,7 @@ $ev = function ($addr, $res, $held = array('GOTPROOF')) use ($pol, $PB) {
 same($ev('bc1qfixtureaddressa', array('path' => '/api/x', 'method' => 'GET', 'environment' => 'production')), 'ok', 'agent key on allowed route');
 same($ev('bc1qfixtureaddressa', array('path' => '/API//x/', 'method' => 'get', 'environment' => 'production')), 'ok', 'case + slashes canonicalized');
 same($ev('bc1qfixtureaddressa', array('path' => '/admin', 'method' => 'GET', 'environment' => 'production')), 'route_not_allowed', 'other route');
-same($ev('bc1qfixtureaddressa', array('path' => '/api/../admin', 'method' => 'GET', 'environment' => 'production')), 'route_not_allowed', 'dot-dot resolved, then denied');
+same($ev('bc1qfixtureaddressa', array('path' => '/api/../admin', 'method' => 'GET', 'environment' => 'production')), 'bad_path', 'dot-dot rejected (path rules v1.1)');
 same($ev('bc1qfixtureaddressa', array('path' => '/api/x', 'method' => 'POST', 'environment' => 'production')), 'method_not_allowed', 'method');
 same($ev('bc1qfixtureaddressa', array('path' => '/api/x', 'method' => 'GET', 'environment' => 'staging')), 'environment_not_allowed', 'environment');
 same($ev('bc1qfixtureaddressa', array('path' => '/api%2f..%2fadmin', 'method' => 'GET')), 'bad_path', 'encoded slash is bad_path');

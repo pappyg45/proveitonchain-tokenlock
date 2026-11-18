@@ -55,6 +55,8 @@ async function server(early, env = {}) {
   throw new Error('php -S did not start');
 }
 const get = (base, p, headers = {}) => fetch(base + p, { redirect: 'manual', headers });
+// Byte-for-byte request path (fetch would resolve dot segments first).
+const rawGet = (base, p, headers = {}) => new Promise((ok, no) => { const u = new URL(base); http.get({ host: u.hostname, port: u.port, path: p, headers }, (res) => { res.resume(); res.on('end', () => ok({ status: res.statusCode })); }).on('error', no); });
 const ck = (v) => ({ cookie: 'tokenlock_pass=' + v });
 const OFF = path.join(root, 'tokenlock', 'early.off');
 
@@ -68,7 +70,9 @@ try {
     assert.equal(r.headers.get('location'), '/tokenlock/signin.php?next=' + encodeURIComponent('/members/area?x=1')); assert.doesNotMatch(await r.text(), /APP BOOTED/);
   });
   await step('protected, alternate spellings (/MEMBERS, //members, /x/../members) are still protected', async () => {
-    for (const p of ['/MEMBERS/area', '//members/area', '/x/../members/area', '/members;a=b/area']) { const r = await get(A, p); assert.equal(r.status, 302, p); }
+    for (const p of ['/MEMBERS/area', '//members/area', '/x/../members/area']) { const r = await get(A, p); assert.equal(r.status, 302, p); }
+    // path rules v1.1: ';params' and dot segments are rejected outright
+    for (const p of ['/members;a=b/area', '/members/area/..', '/members/%2e%2e/x', '/members/./area']) { const r = await rawGet(A, p); assert.equal(r.status, 400, p); }
   });
   await step('protected, valid pass: app boots', async () => { const r = await get(A, '/members/area', ck(GOOD)); assert.equal(r.status, 200); assert.match(await r.text(), /APP BOOTED/); });
   await step('public carve-out inside protect', async () => { assert.equal((await get(A, '/members/join')).status, 200); });
