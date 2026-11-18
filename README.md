@@ -36,11 +36,15 @@ npm install @proveitonchain/tokenlock
 import { tokenlock } from '@proveitonchain/tokenlock/next';
 
 export default tokenlock({
-  protect: ['/members/:path*'],
+  protect: ['/members/:path*'], // TOKENLOCK decides which paths are protected (canonical, case-insensitive)
   signInPage: '/signin',
 });
 
-export const config = { matcher: ['/members/:path*'] };
+// Keep this broad. Next's own matcher is case-sensitive and would skip /MEMBERS
+// if it were ['/members/:path*']. TOKENLOCK then applies `protect`.
+export const config = {
+  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+};
 ```
 
 **`app/api/tokenlock/[action]/route.ts`**: exchanges the pass for an HttpOnly cookie, and signs out
@@ -203,7 +207,7 @@ Paths are matched in canonical form, case-insensitively: query and fragment drop
 
 What our tests do and don't show: the adapter tests (`npm test`, and `test/integration/` with real Express 4 and 5 apps, a Next.js app with middleware, the PHP built-in server with a router, and the Cloudflare worker in Miniflare) check that every alternate URL form is refused or decided on the route the app actually serves. They run against a local copy of the API. They don't establish the security of the hosted verification service or isolation between tenants; an independent security review is on the roadmap.
 
-Next.js: keep `config.matcher` broad (or leave it out). Next's own matcher is case-sensitive, so `matcher: ['/admin/:path*']` would never run the middleware for `/ADMIN`.
+Next.js: keep `config.matcher` broad (the quickstart above, or leave it out). Next's own matcher is case-sensitive, so `matcher: ['/members/:path*']` or `['/admin/:path*']` would never run the middleware for `/MEMBERS` or `/ADMIN`. TOKENLOCK's `protect` option is what decides which application paths are locked.
 
 ### Strict mode (default)
 
@@ -213,11 +217,13 @@ An answer counts only if it is complete and says `allowed: true` for **exactly**
 
 | Setup | How long a revoked key, expired key, revoked entitlement or changed permission can still get in |
 | --- | --- |
-| Strict (default), registered keys | **0**: never cached, every protected request asks the API |
-| `strict: false`, registered keys | up to **5 s** per server process (the API's `cache_max_s`) |
-| Token-only sites (no registered keys) | Holdings are checked at sign-in; a pass stays good until it expires (cached up to 60 s) |
-| `cache: false` (any mode) | 0 |
-| 0.1.x SDKs | up to 60 s |
+| **Hosted verification**, strict (default), registered keys | **0**: never cached, every protected request asks the API |
+| **Hosted verification**, `strict: false`, registered keys | up to **5 s** per server process (the API's `cache_max_s`) |
+| **Hosted verification**, token-only sites (no registered keys) | Holdings are checked at sign-in; a pass stays good until it expires (cached up to 60 s) |
+| **Hosted verification**, `cache: false` (any mode) | 0 |
+| 0.1.x SDKs (hosted) | up to 60 s |
+| **Self-verify**, signed policy bundle | On the next successful policy refresh (**60 seconds** by default). If refreshes fail, the cached bundle is used until it expires (**10 minutes** / 600 s by default, set by the bundle's `ttl`), then access fails closed (`policy_expired`). |
+| **Self-verify**, `localPolicy` | On your next `get()` of that policy (you control how fresh it is). |
 
 `clearCache(pass)` drops every cached answer for that pass, for all routes.
 
@@ -246,6 +252,42 @@ if (r.valid) setCookie('tl_pass', r.pass);                              // HttpO
 const v = await verifyLocalPass(cookie, { passSecret: process.env.MY_PASS_SECRET });
 ```
 
+### Enterprise self-verify (registered keys, path, method, environment)
+
+Pin the policy-signing key, pull a signed policy bundle, and enforce **both** `valid` and `allowed` for a resource. A runnable copy of this flow (including expired-bundle and holdings-outage cases) is in [`examples/self-verify-enterprise.mjs`](examples/self-verify-enterprise.mjs) and is exercised by `test/self-verify-enterprise.test.mjs`.
+
+```js
+import { createChallenge, verifySignIn, verifyLocalPass, fileNonceStore,
+  tokenscanProvider, signedPolicy } from '@proveitonchain/tokenlock/self-verify';
+
+// Pin the key from https://proveitonchain.com/.well-known/tokenlock-policy-keys.json (kid → hex).
+const publicKeys = { [process.env.TOKENLOCK_POLICY_KID]: process.env.TOKENLOCK_POLICY_PUBLIC_KEY };
+const policy = signedPolicy({
+  siteId: process.env.TOKENLOCK_SITE_ID,
+  secretKey: process.env.TOKENLOCK_SECRET_KEY, // fetches GET /api/v1/tokenlock/access/policy
+  publicKeys,                                  // unknown kid or a bad signature → fail closed
+  refreshSeconds: 60,                          // default; retries this often if a refresh fails
+  // ttlSeconds: 600,                          // optional; the API's default bundle lifetime is 600 s
+});
+const store = fileNonceStore('/var/lib/tokenlock-nonces');
+const holdings = tokenscanProvider(); // or proveitonchainProvider(), or requireAgreement([...])
+const cfg = { store, holdings, passSecret: process.env.MY_PASS_SECRET, policy };
+
+const c = await createChallenge({ site: 'https://app.example', assets: ['TOKENLOCK'], store });
+const r = await verifySignIn({ challenge_id: c.challenge_id, address, signature }, cfg);
+// r.valid is false with code lookup_failed if the holdings provider is down,
+// or policy_expired / policy_unavailable if the bundle cannot be used.
+if (!(r.valid && r.pass)) deny(r.code, r.reason);
+
+const v = await verifyLocalPass(r.pass, {
+  passSecret: process.env.MY_PASS_SECRET,
+  policy,
+  resource: { path: '/api/reports/q3', method: 'GET', environment: 'production' },
+});
+// Enforce both: valid = authentic, unexpired pass still granted; allowed = this resource is in scope.
+if (!(v.valid && v.allowed)) deny(v.code, v.reason); // route_not_allowed, policy_expired, …
+```
+
 Registered keys offline: `signedPolicy({ siteId, secretKey, publicKeys: { kid: key } })` pulls a BIP-340-signed bundle
 (Enterprise or pilot), checks it against the key you pinned from `/.well-known/tokenlock-policy-keys.json`, refreshes
 every 60 s, uses the cached bundle while refreshes fail until it expires (default 600 s), then fails closed. Or use
@@ -255,12 +297,26 @@ every 60 s, uses the cached bundle while refreshes fail until it expires (defaul
 |---|---|
 | our holdings provider | our reading of the chain (and the bundle signer, if used) |
 | tokenscan / your node via `httpJsonProvider` | that source (two sources with `requireAgreement`) |
-| `localPolicy` + your node | nothing outside your servers |
+| `localPolicy` + your node | No TOKENLOCK-hosted verification or external holdings provider required. You still depend on your own software and node infrastructure. |
 
 All modes fail closed: lookup errors, an expired or unverifiable policy, replays and bad signatures all deny. The
 `./self-verify` entry bundles the noble cryptography libraries, so there are no extra dependencies to install. PHP:
 `tokenlock/self-verify.php` in the PHP drop-in (it needs the GMP extension), with the same formats. A pass issued by one
 side verifies on the other.
+
+## Decision log coverage (hosted API)
+
+This is what the hosted TOKENLOCK service records when a check reaches our API (production as of 0.3.0, including authorized verifies). The SDK itself does not write this log.
+
+| Event | What is recorded |
+| --- | --- |
+| Successful hosted resource check | Yes. Written as `kind: "pass_check"`, `outcome: "authorized"`, `reason: "ok"`, with the resource (`path`, `method`, `environment` when sent), key, owner, wallet, `correlation_id` (the sign-in nonce when the pass has one), and timestamps. These rows count toward the plan's monthly decision cap. |
+| Denied hosted resource check | Yes. Same `pass_check` shape: `outcome: "denied"`, the reason code (`route_not_allowed`, `key_revoked`, …), `reason_text`, resource, key, and `correlation_id` when present. Sign-in denials are a separate `kind: "signin"` row with the same correlation id. |
+| Locally cached SDK or PHP decision | No hosted event. A cache hit never reaches our API, so it cannot appear in the hosted log. In strict mode (the default), registered-key answers are never cached, so every protected request is logged. If you need a log of cache hits, record them on your server. |
+| Self-verify decision | Not written to the hosted log. There is no `onDecision` hook in the SDK or PHP drop-in today. If you need an audit trail, record the `verifySignIn` / `verifyLocalPass` result on your server (that is your responsibility today; a hook is planned, not shipped). |
+| Logging failure | Access still proceeds. `recordDecision` catches Redis errors and does not fail the verify or sign-in. The decision webhook (Business and Enterprise, opt-in) is one POST, 3 second timeout, no retries; delivery is best-effort, not at-least-once. A failed webhook leaves the row in the Redis export until retention or the cap drops it. |
+
+Full fields, retention, caps and export: https://proveitonchain.com/docs/enterprise#logging
 
 ## Decision records: retention, modification and purge
 

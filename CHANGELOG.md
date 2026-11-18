@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.1 (docs and examples)
+
+- Next.js quickstart `config.matcher` is now the broad pattern already used in the shipped example (`/((?!_next/static|_next/image|favicon.ico).*)`). TOKENLOCK's `protect` option decides which application paths are locked. A narrow, case-sensitive Next matcher such as `['/members/:path*']` is no longer shown as a copy-and-paste default.
+- README documents hosted decision-log coverage, including authorized `pass_check` rows, cache hits (not hosted-logged), self-verify (not hosted-logged; no `onDecision` hook yet), and logging-failure behavior (access still proceeds; webhook is one POST, 3 s, no retries).
+- New complete enterprise self-verify example (`examples/self-verify-enterprise.mjs`) with a pinned policy-signing key, signed policy source, path/method/environment, enforcement of both `valid` and `allowed`, and fail-closed handling for an expired policy bundle and an unavailable holdings provider.
+- Revocation timing table now labels the zero-cache strict row as hosted verification and lists self-verify refresh (60 s default) and bundle expiry (600 s default) separately.
+- Changelog 0.2.2 wording: "AI-assisted review findings and regression fixes." Trust table: `localPolicy` + your node does not require TOKENLOCK-hosted verification or an external holdings provider; you still depend on your own software and node infrastructure.
+
 ## 0.3.0 (preview: self-verify)
 
 - **New entry `@proveitonchain/tokenlock/self-verify`** (spec v1, `docs/self-verify-spec.md`): `createChallenge`, `verifySignIn`, `issuePass` / `verifyLocalPass` (`tl3.` passes keyed by your secret).
@@ -13,7 +21,7 @@
 - Known limit: while the policy endpoint is down, `signedPolicy` retries on every call after the refresh interval, with no backoff.
 
 
-## 0.2.2 (security: second external review)
+## 0.2.2 (security: AI-assisted review findings and regression fixes)
 
 - **Path rules v1.1: ambiguous paths are rejected with 400 `bad_path`**, not resolved: any `;` (path parameters), any `.` or `..` segment, and encoded dots or semicolons (`%2e`, `%3b`). In 0.2.1, `/admin/..` was resolved to `/` (unprotected) while Express and PHP routers served it as `/admin`, so a protected prefix could be reached without a pass. Same rules in Express, Next.js, the Cloudflare example, the PHP drop-in and the API.
 - **Cache key collision fixed**: the resource sent to the API, the cache key and the answer check all use one form, the canonical path lowercased (`resourcePath()`). The key also includes the secret key and API (site), method, environment and mode. Every cache hit is checked again against the request; a hit that doesn't match is dropped. Loose mode now refuses an answer that echoes a different resource.
