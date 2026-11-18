@@ -1,5 +1,5 @@
 {
-  "about": "TOKENLOCK path rules v1. Every adapter (Node, PHP, Cloudflare example) and the hosted API must give the same canonical path or reject (null). Matching on the canonical path is case-insensitive.",
+  "about": "TOKENLOCK path rules v1.1. Every adapter (Node, PHP, Cloudflare example) and the hosted API must give the same canonical path or reject (null, answered with 400). v1.1 rejects ambiguous forms outright: any ';', any '.' or '..' segment, and encoded dots. Matching on the canonical path is case-insensitive; the resource sent to the API is the canonical path lowercased.",
   "vectors": [
     [
       "/admin",
@@ -27,23 +27,23 @@
     ],
     [
       "/admin;x",
-      "/admin"
+      null
     ],
     [
       "/admin;jsessionid=1/users",
-      "/admin/users"
+      null
     ],
     [
       "/./admin",
-      "/admin"
+      null
     ],
     [
       "/x/../admin",
-      "/admin"
+      null
     ],
     [
       "/admin/./users//",
-      "/admin/users"
+      null
     ],
     [
       "/admin%2f..",
@@ -119,7 +119,7 @@
     ],
     [
       "/admin%2E%2E/x",
-      "/admin../x"
+      null
     ],
     [
       "/%2e%2e/admin",
@@ -127,7 +127,55 @@
     ],
     [
       "/a/%2e/b",
-      "/a/b"
+      null
+    ],
+    [
+      "/admin/..",
+      null
+    ],
+    [
+      "/admin/.",
+      null
+    ],
+    [
+      "/admin/x/../..",
+      null
+    ],
+    [
+      "/public/..%2fadmin",
+      null
+    ],
+    [
+      "/public/%2e%2e/admin",
+      null
+    ],
+    [
+      "/public/.%2e/admin",
+      null
+    ],
+    [
+      "/public/..;/admin",
+      null
+    ],
+    [
+      "/admin%3bx",
+      null
+    ],
+    [
+      "/v1.2/file.json",
+      "/v1.2/file.json"
+    ],
+    [
+      "/a..b/...x",
+      "/a..b/...x"
+    ],
+    [
+      "/admin/...",
+      "/admin/..."
+    ],
+    [
+      "/Admin/Users/",
+      "/Admin/Users"
     ]
   ],
   "protected_case": {
@@ -144,13 +192,46 @@
       "/Admin/Users",
       "/x/../admin/y",
       "/admin%5c",
-      "/%2561dmin"
+      "/%2561dmin",
+      "/admin/..",
+      "/admin/.",
+      "/admin/x/..",
+      "/public/../admin",
+      "/public/..;/admin",
+      "/public/%2e%2e/admin",
+      "/ADMIN;x/",
+      "/admin/..."
     ],
     "not_protected": [
       "/",
       "/public",
       "/administrator",
       "/adminx"
+    ]
+  },
+  "resource_vectors": {
+    "about": "resourcePath(raw): the path sent to the API, used in the cache key and compared with the echo.",
+    "vectors": [
+      [
+        "/Admin",
+        "/admin"
+      ],
+      [
+        "/ADMIN/Users/",
+        "/admin/users"
+      ],
+      [
+        "/%41dmin",
+        "/admin"
+      ],
+      [
+        "/admin/..",
+        null
+      ],
+      [
+        "/Caf%C3%A9",
+        "/café"
+      ]
     ]
   }
 }
