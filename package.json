@@ -1,6 +1,6 @@
 {
   "name": "@proveitonchain/tokenlock",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Zero-trust access for the token era. An extra layer in front of your login, admin, or API. Middleware for Next.js and Express, a React sign-in button, and a tiny client for the TOKENLOCK API.",
   "license": "MIT",
   "author": "Prove It Onchain <gotproof@oplanbtc.com>",
@@ -69,13 +69,14 @@
   "files": [
     "dist",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE",
     "examples"
   ],
   "scripts": {
     "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsup && node scripts/use-client.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "node --test test/unit.test.mjs",
+    "test": "node --test test/unit.test.mjs test/security.test.mjs",
     "test:e2e": "node test/e2e.mjs",
     "prepack": "npm run build"
   },
