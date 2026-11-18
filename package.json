@@ -1,7 +1,7 @@
 {
   "name": "@proveitonchain/tokenlock",
-  "version": "0.1.1",
-  "description": "Lock pages on your site to people who hold a name or token on Bitcoin. Middleware for Next.js and Express, a React sign-in button, and a tiny client for the TOKENLOCK API.",
+  "version": "0.1.2",
+  "description": "Zero-trust access for the token era. An extra layer in front of your login, admin, or API. Middleware for Next.js and Express, a React sign-in button, and a tiny client for the TOKENLOCK API.",
   "license": "MIT",
   "author": "Prove It Onchain <gotproof@oplanbtc.com>",
   "homepage": "https://github.com/pappyg45/proveitonchain-tokenlock#readme",

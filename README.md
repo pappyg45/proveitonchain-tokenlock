@@ -1,6 +1,8 @@
 # @proveitonchain/tokenlock
 
-Lock pages on your site to people who hold a name or token on Bitcoin. **Your content stays on your server. We do the Token check.**
+**Zero-trust access for the token era.** An extra layer in front of your login, admin, or API. Only verified token holders get through.
+
+Your content stays on your server. We do the Token check. Built for security teams, AI agents, and mining operations. Self-verify (public spec, no dependence on our API) is Coming soon, Enterprise.
 
 Visitors click **Sign in with your Token**, sign a one-time message in their wallet (nothing is paid or sent), and get a short-lived pass. Your middleware checks the pass with your secret key on every request to a locked path.
 
