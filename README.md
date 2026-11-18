@@ -117,7 +117,10 @@ await client.request('POST', '/api/v1/gate/verify', { pass });
 | Function | What it does |
 | --- | --- |
 | `verifyPass(pass, { secretKey })` | `{ valid, address, assets_held, site_id, expires_at }` or `{ valid: false, code }`. Throws `TokenlockError` only if the API can't be reached. |
-| `getPass(req, opts?)` | The verified pass from the request cookie, or `null`. Works with Fetch `Request`, `NextRequest`, Express/Node `req`. |
+| `getPass(req, opts?)` | The verified pass from the request cookie, or `null`. **Identity only** unless you pass `{ path, method, environment }`. Works with Fetch `Request`, `NextRequest`, Express/Node `req`. |
+| `authorize(req, { path, method, environment })` | Strict, uncached check for one action (agent APIs, sensitive operations). `{ valid: true, allowed: true, … }` or `{ valid: false, allowed: false, code, reason }`. |
+| `canonicalPath(path)` | The path used for matching (see Path rules), or `null` to reject. |
+| `clearCache(pass?)` | Drops every cached answer for that pass (all routes), or everything. |
 | `createChallenge({ siteKey, origin })` | Starts a sign-in: `{ challenge_id, message, assets }`. |
 | `TokenlockClient` | `verifyPass`, `createChallenge`, `signIn`, and `request()` for any `/api/v1` call (sends `Authorization: Bearer sk_…`). |
 | `passCookie`, `clearPassCookie`, `readPass`, `createMatcher`, `safeNext` | Helpers used by the adapters. |
@@ -135,6 +138,13 @@ await client.request('POST', '/api/v1/gate/verify', { pass });
 | `publicPaths` | none | Paths inside `protect` that stay open |
 | `afterSignOut` | `/` | |
 | `sessionPath`, `signOutPath` (Express) | `/api/tokenlock/session`, `/api/tokenlock/signout` | |
+| `environment` | none | Sent with each check, e.g. `'production'` |
+| `strict` | on | See Strict mode. `strict: true` with `failOpen` or `checkResource: false` throws at startup |
+| `checkResource` | `true` | Send path + method with each check |
+| `failOpen` | `false` | Let pass holders in unverified when the API is down. Turns strict off (with a warning) |
+| `apiPaths` | none | Paths that always get JSON 401/403 (API mode) |
+| `caseSensitive` | `false` | `/ADMIN` is the same as `/admin` unless set |
+| `cache` | `true` | `false` asks the API on every request |
 
 ### `<SignInWithBitcoin />` props
 
@@ -150,7 +160,7 @@ await client.request('POST', '/api/v1/gate/verify', { pass });
 
 - The secret key never leaves your server. Passes are checked with it, so a pass made for another site is refused.
 - The pass cookie is HttpOnly, Secure and SameSite=Lax, and the session endpoint refuses requests from other sites.
-- Good checks are cached in memory for at most 60 seconds and never past the pass's expiry.
+- Good checks are cached in memory (see "Revocation window") and never past the pass's expiry.
 - Your dashboard shows every sign-in attempt, and Business plans can get webhook alerts on failure spikes.
 - A pass proves the visitor controlled a wallet holding your token when they signed in. It does not prove who they are.
 
@@ -172,6 +182,37 @@ if (!info.valid) return res.status(403).json({ code: info.code, correlation_id: 
 info.access; // { mode: 'registered_keys', allowed, reason, key: { id, label, owner_type, owner_name }, permissions, key_expires_at }
 ```
 
-- The Express and Next.js middleware now send the request path and method with each pass check (turn off with `checkResource: false`; set `environment: 'production'` to check environments). An out-of-scope route answers `403` JSON instead of redirecting to sign-in.
-- Good answers are cached for at most the server's `cache_max_s` (5 s with registered keys; 60 s otherwise), so a revoked key stops working within seconds. 0.1.x caches up to 60 s.
+- The Express and Next.js middleware send the request path and method with each pass check (set `environment: 'production'` to check environments). An out-of-scope route answers `403` JSON instead of redirecting to sign-in.
 - `correlation_id` matches the entry in your decision log.
+
+## Security model (0.2.1)
+
+### Sessions: a bearer pass, not a per-request signature
+
+The wallet signature happens once, at sign-in. It gets the visitor (or agent) a **pass**: a signed, expiring bearer token kept in an HttpOnly cookie (or sent by an agent). Each request presents that pass; it is **not** a fresh signature per request. Anyone who steals the pass can use it until it expires or the key is revoked, so keep passes short for agents (`pass_ttl_s`), serve over HTTPS, and never log them. Per-request signing for agent APIs (each request signed by the agent's key over method, path, body hash and a timestamp) is on the roadmap.
+
+### Path rules (the same in every adapter and on the API)
+
+Paths are matched in canonical form, case-insensitively: query and fragment dropped; percent-decoded **once**; `;params` dropped from each segment; `//` collapsed; `.` and `..` resolved; trailing `/` dropped. Requests are **rejected with 400** if the path has a backslash, a control byte, an encoded `/` `\` NUL or `%` (`%2f`, `%5c`, `%00`, `%25`), invalid encoding, or `..` above the root. So `/ADMIN`, `/admin/`, `//admin`, `/%61dmin`, `/admin;x` and `/./admin` are all `/admin`, and `/admin%2f..` is refused. Test vectors: `test/fixtures/path-vectors.json`.
+
+Next.js: keep `config.matcher` broad (or leave it out). Next's own matcher is case-sensitive, so `matcher: ['/admin/:path*']` would never run the middleware for `/ADMIN`.
+
+### Strict mode (default)
+
+An answer counts only if it is complete and says `allowed: true` for **exactly** the path, method and environment you asked about (the API echoes them back). Anything else (missing fields, an unknown access mode, a different resource, an expired pass) is a denial. Strict is on in the middleware and whenever you pass a resource to `verifyPass`. `strict: true` together with `failOpen: true` or `checkResource: false` throws when the middleware is created; setting either of those without `strict` turns strict off and logs a warning. When the API can't answer, strict mode denies protected requests with `503`.
+
+### Revocation window
+
+| Setup | How long a revoked key, expired key, revoked entitlement or changed permission can still get in |
+| --- | --- |
+| Strict (default), registered keys | **0**: never cached, every protected request asks the API |
+| `strict: false`, registered keys | up to **5 s** per server process (the API's `cache_max_s`) |
+| Token-only sites (no registered keys) | Holdings are checked at sign-in; a pass stays good until it expires (cached up to 60 s) |
+| `cache: false` (any mode) | 0 |
+| 0.1.x SDKs | up to 60 s |
+
+`clearCache(pass)` drops every cached answer for that pass, for all routes.
+
+### API mode
+
+Requests with `Accept: application/json` (and not `text/html`), or under `apiPaths`, get JSON instead of a redirect, for every denial: `401` when there is no pass or it is invalid or expired (sign in again), `403` when signed in but not allowed (route, method, environment, revoked, expired or pending key, organization, entitlement), `400` for a rejected path, `503` when the API can't answer. Body: `{ error, code, reason, correlation_id }`.
