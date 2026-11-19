@@ -25,6 +25,11 @@ return array(
     // Where sign-out sends people.
     'after_sign_out' => '/',
 
+    // 0.4.0: token-only site (registered keys off): any holder of your tokens may open every locked page.
+    // Identity and token are checked; no per-page rules. If the site turns on registered keys, every page is
+    // still checked against the key's routes. Without this, a token-only site answers 403 policy_required.
+    'token_only' => true,
+
     // Optional. Leave blank unless PHP sits behind a proxy that hides https.
     // If you use both www and non-www, leave this blank so each host is checked on its own.
     // 'public_origin' => 'https://pepeproject.com',

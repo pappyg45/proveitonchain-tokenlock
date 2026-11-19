@@ -764,10 +764,23 @@ function tokenlock_sv_verify_local_pass($token, $o)
         return $no('expired');
     }
     $base = array('address' => $p['sub'] ?? null, 'assets_held' => $p['h'] ?? array(), 'expires_at' => tokenlock_sv_iso($p['e']), 'key_id' => $p['k'] ?? null);
+    $hasResource = isset($o['resource']) && $o['resource'] !== null;
+    $policyRequired = function ($identityValid) use ($base) {
+        return array_merge(array('valid' => false, 'allowed' => false, 'identity_valid' => $identityValid, 'code' => 'policy_required',
+            'reason' => 'No route policy applies: a resource (path, method or environment) was given but there is no policy, or the policy has no route rules (token mode), so it cannot be explicitly permitted. Use a registered-keys policy that grants the route, or drop the resource for an identity-only check.'), $base);
+    };
+    if (empty($o['policy']) && $hasResource) {
+        // 0.3.0 answered allowed => true here although no route, method or environment rule was checked (advisory 2026-11-18).
+        return $policyRequired(true);
+    }
     if (!empty($o['policy'])) {
         list($pol, $err) = tokenlock_sv_policy_get($o['policy']);
         if ($err) {
             return $no($err, $base);
+        }
+        if ($hasResource && ($pol['mode'] ?? '') !== 'registered_keys') {
+            $idv = tokenlock_sv_evaluate($pol, $p['sub'] ?? '', $p['h'] ?? array(), null, $now);
+            return $policyRequired(!empty($idv['allowed']));
         }
         $ev = tokenlock_sv_evaluate($pol, $p['sub'] ?? '', $p['h'] ?? array(), $o['resource'] ?? null, $now);
         if (!$ev['allowed']) {

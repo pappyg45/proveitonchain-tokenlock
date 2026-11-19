@@ -19,7 +19,7 @@
 if (defined('TOKENLOCK_PHP')) {
     return;
 }
-define('TOKENLOCK_PHP', '0.3.0');
+define('TOKENLOCK_PHP', '0.4.0');
 
 class TokenlockException extends Exception
 {
@@ -74,8 +74,13 @@ function tokenlock_defaults()
         'timeout_seconds' => 8,
         'public_origin' => '',
         // Enterprise access controls: send the page path + method with each pass check (sites with registered
-        // keys enforce routes, methods and environments; token-only sites ignore it).
+        // keys enforce routes, methods and environments). 0.4.0: a token-only site has no route policy, so these
+        // checks are denied with policy_required unless token_only is true.
         'check_resource' => true,
+        // Token-only sites (registered keys off): true = every holder of your site's token may open every protected
+        // page. Passes are then checked for identity and token only; if the site has registered keys after all, its
+        // routes, methods and environments are still enforced. Default false (0.4.0).
+        'token_only' => false,
         'environment' => '',
         // If our API can't be reached: false (default) = show "try again" (503) and keep the cookie;
         // true = let visitors who have a pass cookie in, unverified. Low-risk content only.
@@ -130,6 +135,7 @@ function tokenlock_config()
         'TOKENLOCK_ENVIRONMENT' => 'environment',
         'TOKENLOCK_FAIL_OPEN' => 'fail_open',
         'TOKENLOCK_STRICT' => 'strict',
+        'TOKENLOCK_TOKEN_ONLY' => 'token_only',
     );
     foreach ($map as $env => $key) {
         $v = tokenlock_env($env);
@@ -722,7 +728,7 @@ function tokenlock_current_resource()
 /** Deny reasons a new sign-in can't fix: answer 403 instead of redirecting to sign-in. */
 function tokenlock_forbidden_codes()
 {
-    return array('route_not_allowed', 'method_not_allowed', 'environment_not_allowed', 'bad_path', 'resource_mismatch');
+    return array('route_not_allowed', 'method_not_allowed', 'environment_not_allowed', 'bad_path', 'resource_mismatch', 'policy_required');
 }
 
 /** Deny reasons meaning "signed in, but not allowed": API mode answers 403 (anything else is 401). */
@@ -789,9 +795,30 @@ function tokenlock_same_resource($res, $e)
     return true;
 }
 
+/** 0.4.0: a valid answer for a resource with no access block means no route policy applied (token-only). */
+function tokenlock_no_policy($info)
+{
+    return is_array($info) && isset($info['valid']) && $info['valid'] === true && !array_key_exists('access', $info);
+}
+
+/** A policy_required denial; identity_valid = the pass itself (identity and token) is good. */
+function tokenlock_policy_required($info)
+{
+    $info = is_array($info) ? $info : array();
+    $info['valid'] = false;
+    $info['allowed'] = false;
+    $info['identity_valid'] = true;
+    $info['code'] = 'policy_required';
+    $info['reason'] = 'No route policy applies (registered keys are off), so this path, method or environment cannot be authorized. Check identity only, or turn on registered keys and grant the route. Token-only sites: set token_only = true.';
+    return $info;
+}
+
 /** Loose (non-strict) answer check: well-formed, not denied, and any echoed resource is this one. */
 function tokenlock_loose_ok($info, $res)
 {
+    if ($res && tokenlock_no_policy($info)) {
+        return false;
+    }
     $ok = is_array($info) && !empty($info['valid']) && $info['valid'] === true && !empty($info['site_id']) && !empty($info['address'])
         && !(array_key_exists('allowed', $info) && $info['allowed'] === false)
         && !(isset($info['access']['allowed']) && $info['access']['allowed'] === false);
@@ -820,6 +847,9 @@ function tokenlock_strict_problem($info, $res)
     if ($exp === false || $exp <= time()) {
         return 'expired';
     }
+    if ($res && !array_key_exists('access', $info)) {
+        return 'policy_required';
+    }
     if (array_key_exists('access', $info)) {
         $a = $info['access'];
         if (!is_array($a) || !isset($a['mode']) || $a['mode'] !== 'registered_keys' || !isset($a['allowed']) || $a['allowed'] !== true) {
@@ -828,7 +858,7 @@ function tokenlock_strict_problem($info, $res)
     }
     if ($res) {
         if (!isset($info['allowed']) || $info['allowed'] !== true) {
-            return 'not_allowed';
+            return (isset($info['access']['reason']) && $info['access']['reason'] !== 'ok') ? $info['access']['reason'] : 'not_allowed';
         }
         $e = isset($info['resource']) ? $info['resource'] : (isset($info['access']['resource']) ? $info['access']['resource'] : null);
         if (!is_array($e)) {
@@ -879,6 +909,9 @@ function tokenlock_verify_pass($pass, $resource = null, $opts = array())
     $info = tokenlock_request('POST', '/api/v1/gate/verify', array_merge(array('pass' => $pass), $res ? $res : array()));
     if ($strict) {
         $why = tokenlock_strict_problem($info, $res);
+        if ($why === 'policy_required' && tokenlock_no_policy($info)) {
+            return tokenlock_policy_required($info);
+        }
         if ($why !== null) {
             if (!is_array($info)) {
                 $info = array();
@@ -896,6 +929,9 @@ function tokenlock_verify_pass($pass, $resource = null, $opts = array())
         }
         return $info;
     }
+    if ($res && tokenlock_no_policy($info)) {
+        return tokenlock_policy_required($info);
+    }
     $ok = tokenlock_loose_ok($info, $res);
     if (!$ok) {
         if (!is_array($info)) {
@@ -909,6 +945,30 @@ function tokenlock_verify_pass($pass, $resource = null, $opts = array())
     }
     if ($useCache) {
         tokenlock_cache_put($ck, $cfg['secret_key'], $info);
+    }
+    return $info;
+}
+
+/**
+ * The pass check used by tokenlock_require() and tokenlock_pass(): this request's resource, or (token_only) identity
+ * and token first, then the resource only if the site turns out to have a route policy.
+ */
+function tokenlock_check_request($pass, $opts = array())
+{
+    static $warned = false;
+    $cfg = tokenlock_config();
+    $res = tokenlock_current_resource();
+    if (tokenlock_bool(isset($cfg['token_only']) ? $cfg['token_only'] : false) === true) {
+        $info = tokenlock_verify_pass($pass, null, $opts);
+        if (is_array($info) && !empty($info['valid']) && array_key_exists('access', $info) && $res) {
+            $info = tokenlock_verify_pass($pass, $res, $opts);
+        }
+        return $info;
+    }
+    $info = tokenlock_verify_pass($pass, $res, $opts);
+    if (is_array($info) && isset($info['code']) && $info['code'] === 'policy_required' && !empty($info['identity_valid']) && !$warned) {
+        $warned = true;
+        error_log('[TOKENLOCK] This site has no route policy (registered keys are off), so protected pages are denied with policy_required. If every token holder may open them, set token_only = true. See https://proveitonchain.com/security/advisories/2026-11-18');
     }
     return $info;
 }
@@ -970,7 +1030,7 @@ function tokenlock_pass()
         return null;
     }
     try {
-        $info = tokenlock_verify_pass($pass, tokenlock_current_resource());
+        $info = tokenlock_check_request($pass);
     } catch (TokenlockException $e) {
         throw $e;
     }
@@ -1000,7 +1060,7 @@ function tokenlock_require()
     try {
         $info = null;
         if ($pass) {
-            $info = tokenlock_verify_pass($pass, tokenlock_current_resource(), array('strict' => $strict));
+            $info = tokenlock_check_request($pass, array('strict' => $strict));
         }
     } catch (TokenlockException $e) {
         $cfg0 = tokenlock_config();
