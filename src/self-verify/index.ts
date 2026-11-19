@@ -314,7 +314,7 @@ const REASONS: Record<string, string> = {
   not_registered: 'This wallet is not a registered key for this site.', key_revoked: 'This key was revoked.', key_expired: 'This key has expired.', pending_approval: 'Waiting for the site admin to approve this wallet.',
   org_not_approved: 'The organization for this key is not approved.', org_required: 'This site requires keys to belong to an organization.', entitlement_revoked: 'This token no longer unlocks this site.',
   policy_expired: 'Access policy is out of date. Try again in a minute.', policy_unavailable: 'Access policy is unavailable. Try again in a minute.',
-  policy_required: 'Configuration error: a resource (path, method or environment) was given but no policy is configured, so its permissions cannot be checked. Pass `policy` (signedPolicy or localPolicy), or drop `resource` for an identity-only check.',
+  policy_required: 'No route policy applies: a resource (path, method or environment) was given but there is no policy, or the policy has no route rules (token mode), so it cannot be explicitly permitted. Use a registered-keys policy that grants the route, or drop `resource` for an identity-only check.',
 };
 export interface SelfVerifyConfig { store: NonceStore; holdings: HoldingsProvider; passSecret: string; policy?: PolicySource; clockSkewSeconds?: number }
 /** Verify a sign-in with no call to our API (except providers/policy you chose). Fails closed on any lookup error. */
@@ -359,9 +359,12 @@ const SCOPE = new Set(['route_not_allowed', 'method_not_allowed', 'environment_n
  * Check a local pass. `valid` = authentic, unexpired and access still granted; `allowed` also covers this resource.
  * Identity only (no `resource`): `policy` is optional. With a `resource` ({ path, method, environment }) a `policy` is
  * required, because route, method and environment rules live in the policy: without one the answer is
- * `{ valid: false, allowed: false, code: 'policy_required' }` (a configuration error, never an allow).
+ * `{ valid: false, allowed: false, code: 'policy_required' }` (a configuration error, never an allow). Since 0.4.0 the same
+ * applies to a token-mode policy (registered keys off): it has no route rules, so a resource is never "explicitly permitted".
+ * `identity_valid: true` on those answers means the pass itself (and, in token mode, the token) is still good.
  */
-export async function verifyLocalPass(token: string, o: { passSecret: string; policy?: PolicySource; resource?: Resource | null; now?: number }): Promise<{ valid: boolean; allowed: boolean; code: string; reason: string; address?: string; assets_held?: string[]; expires_at?: string; key_id?: string | null }> {
+function tokenModeIdentity(pol: Policy, p: any, now: number): boolean { return evaluate(pol, { address: p.sub, held: p.h, resource: null, now }).allowed; }
+export async function verifyLocalPass(token: string, o: { passSecret: string; policy?: PolicySource; resource?: Resource | null; now?: number }): Promise<{ valid: boolean; allowed: boolean; code: string; reason: string; identity_valid?: boolean; address?: string; assets_held?: string[]; expires_at?: string; key_id?: string | null }> {
   const no = (code: string, extra = {}) => ({ valid: SCOPE.has(code), allowed: false, code, reason: REASONS[code] || code, ...extra });
   const m = /^tl3\.([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]{43})$/.exec(String(token || ''));
   if (!m) return no('bad_pass');
@@ -374,12 +377,16 @@ export async function verifyLocalPass(token: string, o: { passSecret: string; po
   const base = { address: p.sub, assets_held: p.h, expires_at: iso(p.e), key_id: p.k ?? null };
   if (o.policy) {
     let pol: Policy; try { pol = await o.policy.get(); } catch (e: any) { return no(e?.code === 'policy_expired' ? 'policy_expired' : 'policy_unavailable', base); }
+    if (o.resource != null && pol.mode !== 'registered_keys') {
+      // Token-mode policy: no route rules exist, so a resource cannot be explicitly permitted (0.4.0).
+      return { valid: false, allowed: false, identity_valid: tokenModeIdentity(pol, p, now), code: 'policy_required', reason: REASONS.policy_required, ...base };
+    }
     const ev = evaluate(pol, { address: p.sub, held: p.h, resource: o.resource || null, now });
     if (!ev.allowed) return no(ev.reason, base);
     if (pol.mode === 'registered_keys' && (ev.key?.id ?? null) !== (p.k ?? null)) return no('not_registered', base); // pass bound to its key
   } else if (o.resource != null) {
     // 0.3.2 returned allowed: true here, which read as "route, method and environment were checked". They were not.
-    return { valid: false, allowed: false, code: 'policy_required', reason: REASONS.policy_required, ...base };
+    return { valid: false, allowed: false, identity_valid: true, code: 'policy_required', reason: REASONS.policy_required, ...base };
   }
   return { valid: true, allowed: true, code: 'ok', reason: 'Allowed.', ...base };
 }
