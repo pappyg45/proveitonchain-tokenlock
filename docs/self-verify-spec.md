@@ -1,6 +1,6 @@
 # TOKENLOCK self-verify, spec v1
 
-Status: preview (SDK 0.3.0, PHP drop-in 0.3.0). Enterprise. Web version: https://proveitonchain.com/docs/self-verify
+Status: preview (SDK 0.3.3, self-verify since 0.3.0; PHP drop-in 0.3.0). Enterprise. Web version: https://proveitonchain.com/docs/self-verify
 
 Self-verify lets **your server** run "Sign in with your Token" from start to finish. You issue the challenge and keep
 the nonce. You check the wallet signature locally, and you read holdings from a source you pick. For the sign-in itself,
@@ -120,7 +120,8 @@ the key's `pass_ttl_s` and the agent/default TTLs in the policy, and by the key'
 - `valid:false`: forged, expired, revoked, or the policy is unavailable. Answer 401.
 - `valid:false, code:"policy_required"`: a `resource` was given without a `policy`. This is a configuration error
   (answer 500 and fix the config): route, method and environment rules live in the policy. Leave out `resource` for an
-  identity-only check, which needs no policy.
+  identity-only check, which needs no policy. (Node SDK 0.3.3 and later. The PHP drop-in 0.3.0 still answers
+  `allowed: true` here, so in PHP always pass a policy whenever you pass a resource.)
 - `valid:true, allowed:false`: authentic but outside this route, method or environment (`route_not_allowed`, …). Answer 403.
 - `valid:true, allowed:true`: allow.
 
