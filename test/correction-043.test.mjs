@@ -44,8 +44,6 @@ const MALFORMED = {
   'path undefined (key present)': { path: undefined, method: 'GET' },
   'path padded with spaces': { path: ' /members/x ', method: 'GET' },
   'path relative': { path: 'members/x', method: 'GET' },
-  'path with query': { path: '/members/x?role=admin', method: 'GET' },
-  'path with fragment': { path: '/members/x#a', method: 'GET' },
   'method empty': { path: '/members/x', method: '' },
   'method whitespace-only': { path: '/members/x', method: '  ' },
   'method null': { path: '/members/x', method: null },
@@ -132,6 +130,9 @@ test('malformed and ambiguous paths are refused everywhere; canonical forms are 
   const calls = [];
   const v = await new core.TokenlockClient({ secretKey: SK, fetch: stub(calls), cache: false }).verifyPass(PASS, { path: '/Members//%41/', method: 'get', environment: 'production' });
   assert.equal(v.valid, true); assert.equal(calls[0].path, '/members/a'); assert.equal(calls[0].method, 'GET');
+  // path rules v1.1: a query or fragment is not part of the route and is dropped before matching (never a downgrade)
+  const q = []; await new core.TokenlockClient({ secretKey: SK, fetch: stub(q), cache: false }).verifyPass(PASS, { path: '/members/x?role=admin#f', method: 'GET' });
+  assert.equal(q[0].path, '/members/x');
 });
 test('inconsistent route / method combinations deny (item 3)', async () => {
   const c = new core.TokenlockClient({ secretKey: SK, fetch: stub(), cache: false });

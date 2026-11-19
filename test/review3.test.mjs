@@ -25,7 +25,7 @@ function signedBundle({ seq = 1, now = Date.now(), ttlMs = 600e3 } = {}) {
 // ---------------------------------------------------------------- finding 1 (high)
 test('0.3.3 verifyLocalPass: resource without a policy is a configuration error, never allowed', async () => {
   const p = pass();
-  for (const resource of [{ path: '/admin', method: 'POST', environment: 'production' }, { path: '/api/x' }, { method: 'DELETE' }, { environment: 'production' }, {}]) {
+  for (const resource of [{ path: '/admin', method: 'POST', environment: 'production' }, { path: '/api/x', method: 'GET' }, { path: '/', method: 'DELETE' }, { path: '/a', method: 'GET', environment: 'production' }]) {
     const v = await SV.verifyLocalPass(p, { passSecret: SECRET, resource, now: NOW });
     assert.equal(v.allowed, false, `allowed must be false for ${JSON.stringify(resource)}`);
     assert.equal(v.valid, false);
@@ -37,13 +37,13 @@ test('0.3.3 verifyLocalPass: resource without a policy is a configuration error,
 
 test('0.3.3 verifyLocalPass: identity-only check (no resource) still works without a policy', async () => {
   const p = pass();
-  for (const o of [{}, { resource: undefined }, { resource: null }]) {
+  for (const o of [{ identityOnly: true }]) { // 0.4.3: identity-only is explicit; {} / resource undefined / null are refused (bad_resource)
     const v = await SV.verifyLocalPass(p, { passSecret: SECRET, now: NOW, ...o });
     assert.equal(v.valid, true); assert.equal(v.allowed, true); assert.equal(v.code, 'ok');
   }
   // bad and expired passes are still reported as such, before the policy check
-  assert.equal((await SV.verifyLocalPass(p.slice(0, -2) + 'AA', { passSecret: SECRET, resource: { path: '/a' }, now: NOW })).code, 'bad_pass');
-  assert.equal((await SV.verifyLocalPass(p, { passSecret: SECRET, resource: { path: '/a' }, now: NOW + 901e3 })).code, 'expired');
+  assert.equal((await SV.verifyLocalPass(p.slice(0, -2) + 'AA', { passSecret: SECRET, resource: { path: '/a', method: 'GET' }, now: NOW })).code, 'bad_pass');
+  assert.equal((await SV.verifyLocalPass(p, { passSecret: SECRET, resource: { path: '/a', method: 'GET' }, now: NOW + 901e3 })).code, 'expired');
 });
 
 test('0.3.3 verifyLocalPass: resource + policy evaluates route, method and environment', async () => {
@@ -126,14 +126,14 @@ test('0.3.3 verifyPass throws TokenlockError: missing secret key, non-2xx HTTP, 
   const PASS = 'pp1.' + 'a'.repeat(20) + '.' + 'b'.repeat(20);
   const saved = process.env.TOKENLOCK_SECRET_KEY; delete process.env.TOKENLOCK_SECRET_KEY;
   try {
-    await assert.rejects(new TokenlockClient({ fetch: async () => { throw new Error('unused'); } }).verifyPass(PASS), (e) => e instanceof TokenlockError && e.code === 'no_secret_key' && e.status === 0 && !isUnavailable(e));
+    await assert.rejects(new TokenlockClient({ fetch: async () => { throw new Error('unused'); } }).verifyPass(PASS, { identityOnly: true }), (e) => e instanceof TokenlockError && e.code === 'no_secret_key' && e.status === 0 && !isUnavailable(e));
   } finally { if (saved !== undefined) process.env.TOKENLOCK_SECRET_KEY = saved; }
   const res = (status, body) => async () => ({ ok: status >= 200 && status < 300, status, json: async () => body });
-  await assert.rejects(verifyPass(PASS, { secretKey: 'sk_' + 't'.repeat(43), fetch: res(429, { error: 'Too many requests.', code: 'rate_limited' }) }), (e) => e instanceof TokenlockError && e.status === 429 && e.code === 'rate_limited' && !isUnavailable(e));
-  await assert.rejects(verifyPass(PASS, { secretKey: 'sk_' + 't'.repeat(43), fetch: res(503, null) }), (e) => e instanceof TokenlockError && e.status === 503 && isUnavailable(e));
-  await assert.rejects(verifyPass(PASS, { secretKey: 'sk_' + 't'.repeat(43), fetch: async () => { throw new TypeError('fetch failed'); } }), (e) => e instanceof TokenlockError && e.code === 'network' && e.status === 0 && isUnavailable(e));
-  const bad = await verifyPass('not-a-pass', { secretKey: 'sk_' + 't'.repeat(43), fetch: async () => { throw new Error('not called'); } });
+  await assert.rejects(verifyPass(PASS, { identityOnly: true, secretKey: 'sk_' + 't'.repeat(43), fetch: res(429, { error: 'Too many requests.', code: 'rate_limited' }) }), (e) => e instanceof TokenlockError && e.status === 429 && e.code === 'rate_limited' && !isUnavailable(e));
+  await assert.rejects(verifyPass(PASS, { identityOnly: true, secretKey: 'sk_' + 't'.repeat(43), fetch: res(503, null) }), (e) => e instanceof TokenlockError && e.status === 503 && isUnavailable(e));
+  await assert.rejects(verifyPass(PASS, { identityOnly: true, secretKey: 'sk_' + 't'.repeat(43), fetch: async () => { throw new TypeError('fetch failed'); } }), (e) => e instanceof TokenlockError && e.code === 'network' && e.status === 0 && isUnavailable(e));
+  const bad = await verifyPass('not-a-pass', { identityOnly: true, secretKey: 'sk_' + 't'.repeat(43), fetch: async () => { throw new Error('not called'); } });
   assert.equal(bad.valid, false); assert.equal(bad.code, 'bad_pass');
-  const answered = await verifyPass(PASS, { secretKey: 'sk_' + 't'.repeat(43), fetch: res(200, { valid: false, code: 'bad_secret_key', reason: 'Unknown secret key.' }) });
+  const answered = await verifyPass(PASS, { identityOnly: true, secretKey: 'sk_' + 't'.repeat(43), fetch: res(200, { valid: false, code: 'bad_secret_key', reason: 'Unknown secret key.' }) });
   assert.equal(answered.valid, false); assert.equal(answered.code, 'bad_secret_key');
 });
