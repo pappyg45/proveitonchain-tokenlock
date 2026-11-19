@@ -31,57 +31,54 @@ test('resourcePath: shared vectors (canonical, lowercased)', () => {
   for (const [i, want] of V.resource_vectors.vectors) assert.equal(core.resourcePath(i), want, i);
 });
 
-test('cache key collision (repro): /Admin then /admin answer for the same lowercased resource, with a matching echo', async () => {
+test('cache key collision (repro): /Admin then /admin are the same canonical resource; 0.4.2 never caches resource answers', async () => {
   core.clearCache(); const calls = [];
-  const c = new core.TokenlockClient({ secretKey: SK, strict: false, fetch: tokenOnly(calls) });
+  const c = new core.TokenlockClient({ secretKey: SK, fetch: tokenOnly(calls) });
   const a = await c.verifyPass(P, { path: '/Admin', method: 'GET' });
   const b = await c.verifyPass(P, { path: '/admin', method: 'GET' });
   assert.equal(a.valid, true); assert.equal(b.valid, true);
-  assert.equal(calls.length, 1, 'one canonical resource → one cache entry');
-  assert.equal(calls[0].path, '/admin', 'the API is asked about the canonical lowercased path');
-  // 0.2.1 returned the cached /Admin answer (echo "/Admin") for /admin; the echo now always matches the request.
+  assert.equal(calls.length, 2, '0.4.2 (always strict): registered-key resource answers are asked every time');
+  assert.deepEqual(calls.map((x) => x.path), ['/admin', '/admin'], 'the API is asked about the canonical lowercased path');
   assert.equal(b.resource.path, '/admin');
+  assert.throws(() => new core.TokenlockClient({ secretKey: SK, strict: false, fetch: tokenOnly(calls) }), (e) => e.code === 'bad_config', 'loose mode removed');
 });
 
-test('cache hits are revalidated against the request: a hit that no longer matches is dropped and asked again', async () => {
+test('cache hits are revalidated against the request: a hit that no longer matches (expired) is dropped and asked again', async () => {
   core.clearCache(); const calls = [];
-  const c = new core.TokenlockClient({ secretKey: SK, strict: false, fetch: tokenOnly(calls) });
-  const a = await c.verifyPass(P, { path: '/admin/x', method: 'GET' });
-  assert.equal(a.valid, true);
-  a.resource.path = '/admin/other'; // the cached object no longer describes this request
-  const b = await c.verifyPass(P, { path: '/admin/x', method: 'GET' });
-  assert.equal(b.valid, true); assert.equal(calls.length, 2, 'the bad hit was not used');
-  assert.equal(b.resource.path, '/admin/x');
-  // an expired cached answer is never used either
-  b.expires_at = new Date(Date.now() - 1000).toISOString();
-  await c.verifyPass(P, { path: '/admin/x', method: 'GET' }); assert.equal(calls.length, 3);
+  const c = new core.TokenlockClient({ secretKey: SK, fetch: async (u, init) => { calls.push(1); return J({ valid: true, address: 'bc1qholder', assets_held: ['TOKENLOCK'], site_id: 's1', expires_at: future(), cache_max_s: 60 }); } });
+  const a = await c.verifyPass(P); assert.equal(a.valid, true);
+  await c.verifyPass(P); assert.equal(calls.length, 1, 'identity answer cached');
+  a.expires_at = new Date(Date.now() - 1000).toISOString(); // the cached object no longer holds
+  const b = await c.verifyPass(P); assert.equal(b.valid, true); assert.equal(calls.length, 2, 'the bad hit was not used');
+  a.resource = { path: '/admin', method: 'GET', environment: null }; b.resource = { path: '/admin', method: 'GET', environment: null };
+  await c.verifyPass(P); assert.equal(calls.length, 3, 'a cached identity answer that suddenly names a resource is not used');
 });
 
-test('cache key includes secret key (site), method, environment and mode', async () => {
+test('cache key includes secret key (site): identity answers of one site never answer for another', async () => {
   core.clearCache(); const calls = [];
-  const f = tokenOnly(calls);
-  const one = new core.TokenlockClient({ secretKey: SK, strict: false, fetch: f });
-  const two = new core.TokenlockClient({ secretKey: SK2, strict: false, fetch: f });
-  await one.verifyPass(P, { path: '/admin', method: 'GET', environment: 'production' });
-  await two.verifyPass(P, { path: '/admin', method: 'GET', environment: 'production' }); assert.equal(calls.length, 2, 'site');
-  await one.verifyPass(P, { path: '/admin', method: 'POST', environment: 'production' }); assert.equal(calls.length, 3, 'method');
-  await one.verifyPass(P, { path: '/admin', method: 'GET', environment: 'staging' }); assert.equal(calls.length, 4, 'environment');
-  await one.verifyPass(P, { path: '/admin', method: 'GET', environment: 'production' }, { strict: true }); assert.equal(calls.length, 5, 'mode');
-  await one.verifyPass(P, { path: '/ADMIN/', method: 'get', environment: 'production' }); assert.equal(calls.length, 5, 'same canonical resource is a hit');
+  const f = async () => { calls.push(1); return J({ valid: true, address: 'bc1qholder', assets_held: ['TOKENLOCK'], site_id: 's1', expires_at: future(), cache_max_s: 60 }); };
+  const one = new core.TokenlockClient({ secretKey: SK, fetch: f });
+  const two = new core.TokenlockClient({ secretKey: SK2, fetch: f });
+  await one.verifyPass(P); await two.verifyPass(P); assert.equal(calls.length, 2, 'site');
+  await one.verifyPass(P); await two.verifyPass(P); assert.equal(calls.length, 2, 'each site hit its own entry');
+  // resource checks (method/environment variations included) always ask
+  const k = new core.TokenlockClient({ secretKey: SK, fetch: tokenOnly([]) });
+  const kc = []; const k2 = new core.TokenlockClient({ secretKey: SK, fetch: tokenOnly(kc) });
+  for (const [m, e] of [['GET', 'production'], ['POST', 'production'], ['GET', 'staging'], ['GET', 'production']]) await k2.verifyPass(P, { path: '/admin', method: m, environment: e });
+  assert.equal(kc.length, 4); void k;
 });
 
-test('an echo for another path is refused in strict AND loose mode (never cached)', async () => {
-  for (const strict of [true, false]) {
-    core.clearCache(); const calls = [];
-    const c = new core.TokenlockClient({ secretKey: SK, strict, fetch: tokenOnly(calls, { echo: (r) => ({ ...r, path: '/public' }) }) });
-    const r = await c.verifyPass(P, { path: '/admin', method: 'GET' });
-    assert.equal(r.valid, false, 'strict=' + strict); assert.equal(r.code, 'resource_mismatch');
-    await c.verifyPass(P, { path: '/admin', method: 'GET' }); assert.equal(calls.length, 2);
-  }
+test('an echo for another path is refused (never cached); strict:false is a config error', async () => {
+  core.clearCache(); const calls = [];
+  const c = new core.TokenlockClient({ secretKey: SK, fetch: tokenOnly(calls, { echo: (r) => ({ ...r, path: '/public' }) }) });
+  const r = await c.verifyPass(P, { path: '/admin', method: 'GET' });
+  assert.equal(r.valid, false); assert.equal(r.code, 'resource_mismatch');
+  await c.verifyPass(P, { path: '/admin', method: 'GET' }); assert.equal(calls.length, 2);
+  assert.throws(() => new core.TokenlockClient({ secretKey: SK, strict: false, fetch: tokenOnly([]) }), (e) => e.code === 'bad_config');
   // an upper-case echo of the same path is the same resource
   core.clearCache();
-  const c = new core.TokenlockClient({ secretKey: SK, fetch: tokenOnly([], { echo: (r) => ({ ...r, path: '/ADMIN' }) }) });
-  assert.equal((await c.verifyPass(P, { path: '/admin', method: 'GET' })).valid, true);
+  const u = new core.TokenlockClient({ secretKey: SK, fetch: tokenOnly([], { echo: (r) => ({ ...r, path: '/ADMIN' }) }) });
+  assert.equal((await u.verifyPass(P, { path: '/admin', method: 'GET' })).valid, true);
 });
 
 test('safeNext: shared vectors (only same-site relative paths)', () => {
@@ -165,10 +162,10 @@ test('path rules v1.1: ambiguous forms are rejected by the SDK and the Cloudflar
   }
 });
 
-test('0.4.0: a valid answer with a resource but no route policy (token-only) is policy_required in strict AND loose mode, never cached', async () => {
-  for (const strict of [true, false]) {
+test('0.4.0: a valid answer with a resource but no route policy (token-only) is policy_required (0.4.2: always strict), never cached', async () => {
+  for (const strict of [true, undefined]) {
     core.clearCache(); const calls = [];
-    const c = new core.TokenlockClient({ secretKey: SK, strict, fetch: tokenOnly(calls, { legacy: true }) });
+    const c = new core.TokenlockClient({ secretKey: SK, ...(strict === undefined ? {} : { strict }), fetch: tokenOnly(calls, { legacy: true }) });
     const r = await c.verifyPass(P, { path: '/admin', method: 'GET' });
     assert.equal(r.valid, false, 'strict=' + strict); assert.equal(r.allowed, false); assert.equal(r.code, 'policy_required'); assert.equal(r.identity_valid, true);
     await c.verifyPass(P, { path: '/admin', method: 'GET' }); assert.equal(calls.length, 2, 'not cached');
