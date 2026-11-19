@@ -203,3 +203,14 @@ test('cloudflare: a TOKENLOCK_PROTECT entry that is not a plain path prefix is b
     assert.equal(res.status, 401, 'control: a plain prefix list protects /api/x');
   } finally { globalThis.fetch = realFetch; }
 });
+
+// Found by the 0.4.3 interface audit (written before the fix): an Express/Next protect, publicPaths or apiPaths string
+// without a leading '/' (e.g. 'api/*') matched nothing, so the paths it named were silently unprotected.
+test('middleware: a protect/publicPaths/apiPaths string that is not a path is bad_config at startup', () => {
+  for (const make of [ex.tokenlock, nx.tokenlock]) {
+    for (const bad of [{ protect: 'api/*' }, { protect: ['/members/:path*', 'admin'] }, { protect: '/api/:path*', publicPaths: ['api/public'] }, { protect: '/api/:path*', apiPaths: ['api'] }]) {
+      assert.throws(() => make({ signInPage: '/signin', secretKey: SK, ...bad }), (e) => e.code === 'bad_config', JSON.stringify(bad));
+    }
+    assert.doesNotThrow(() => make({ signInPage: '/signin', secretKey: SK, protect: ['/api/:path*', '*'], publicPaths: ['/api/public'], apiPaths: ['/api'] }), 'control');
+  }
+});
