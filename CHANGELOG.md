@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.3 (fixes from external review)
+
+- **Self-verify: a `resource` now requires a `policy`.** `verifyLocalPass(pass, { passSecret, resource })` with no `policy` returned `allowed: true` in 0.3.2, which could be read as "route, method and environment were checked". It now returns `{ valid: false, allowed: false, code: 'policy_required' }` (a configuration error, never an allow). Identity-only checks (no `resource`) still work without a policy.
+- **`signedPolicy` retry backoff.** After a failed load, the next attempt waits 5 s, doubling up to `refreshSeconds` (options `retryMinSeconds`, `retryMaxSeconds`); calls in between answer at once from the cached bundle or with the last error, and concurrent calls share one in-flight load. Three immediate calls during an initial outage now make one load attempt (0.3.2: three). New `status()` reports `failures`, `last_error` and `next_retry_at`. Fixes the 0.3.0 known limit below.
+- Docs: the revocation table is split into key revocation, permission changes and holdings changes. Only admin changes to registered keys are 0 s on hosted strict / `cache: false`; token transfers follow the hosted `recheck_holdings_s` (300 s default) even with `cache: false`, and self-verify passes keep their holdings until they expire.
+- Docs: the enterprise self-verify example comment no longer says failed refreshes retry every 60 s.
+- Docs: `verifyPass` lists every `TokenlockError` (missing configuration, non-2xx HTTP responses, network errors and timeouts), with a custom-server error-handling example.
+- Tests: `test/review3.test.mjs` (9 tests) reproduces each finding against 0.3.2 and covers the fixes.
+
 ## 0.3.2 (docs)
 
 - Docs: corrected strict-mode logging wording.

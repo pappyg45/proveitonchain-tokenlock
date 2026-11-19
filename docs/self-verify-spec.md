@@ -97,9 +97,14 @@ A revocation reaches your server on its **next successful refresh**.
 
 | Setting | Default | Effect |
 |---|---|---|
-| `refreshSeconds` (`refresh_seconds`) | 60 | How often a fresh bundle is pulled. This is the normal worst case for revocation. |
+| `refreshSeconds` (`refresh_seconds`) | 60 | How often a fresh bundle is pulled. This is the normal worst case for key revocation and permission changes. |
+| `retryMinSeconds` / `retryMaxSeconds` | 5 / `refreshSeconds` | After a failed load, the next attempt waits 5 s, then 10 s, 20 s … up to the max. Calls in between don't hit the network; concurrent calls share one in-flight load. A success resets the backoff. |
 | bundle `ttl` | 600 s (60–3600) | If refreshes fail, the cached bundle is used until it expires. This is the worst case during an outage. |
 | after expiry | — | Every sign-in and pass check fails closed (`policy_expired`) until a refresh works. |
+
+Holdings changes (a token transferred away) are a separate clock: holdings are read at sign-in, and `verifyLocalPass`
+does not re-read them, so an existing pass keeps working until it expires (`pass_ttl_s`, default 900 s). The bundle
+carries key status, not live holdings, and the hosted `recheck_holdings_s` re-check does not apply to self-verify.
 
 The hosted mode checks revocation on every verify. Self-verify trades that for not depending on us; choose `ttl`
 to match how quickly a revoked key must stop working.
@@ -113,6 +118,9 @@ in an HttpOnly cookie or an Authorization header. Lifetime is the challenge's `p
 the key's `pass_ttl_s` and the agent/default TTLs in the policy, and by the key's `expires_at`.
 `verifyLocalPass(token, { passSecret, policy?, resource? })` gives one of these results:
 - `valid:false`: forged, expired, revoked, or the policy is unavailable. Answer 401.
+- `valid:false, code:"policy_required"`: a `resource` was given without a `policy`. This is a configuration error
+  (answer 500 and fix the config): route, method and environment rules live in the policy. Leave out `resource` for an
+  identity-only check, which needs no policy.
 - `valid:true, allowed:false`: authentic but outside this route, method or environment (`route_not_allowed`, …). Answer 403.
 - `valid:true, allowed:true`: allow.
 
@@ -133,7 +141,7 @@ The shared test vectors are in `test/fixtures/path-vectors.json`.
 
 Every one of these means **deny**: an unknown or reused nonce, an expired challenge, a bad signature, an unsupported
 address, any holdings error or disagreement, a policy that is unavailable or expired, a bad bundle signature, an
-unknown `kid`, the wrong site, a rollback, a bad path or a bad pass. No option turns any of these into "allow".
+unknown `kid`, the wrong site, a rollback, a bad path, a bad pass, or a resource check with no policy configured. No option turns any of these into "allow".
 
 ## 9. Test vectors
 
