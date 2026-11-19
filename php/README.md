@@ -25,8 +25,9 @@ method or environment is authorized unless a policy explicitly permits it. Ident
 - Sites with registered keys: no change.
 
 To upgrade: replace the files in `tokenlock/` (keep your `config.php`), and add `'token_only' => true,` to your
-`config.php` if any holder should open every locked page. The hosted API keeps giving PHP 0.2.x/0.3.x the old answer
-(marked with a `warning`) so existing sites keep working until they upgrade; those versions remain affected.
+`config.php` if any holder should open every locked page. Since 18 Nov 2026, 9:03 PM PT the hosted API answers
+`policy_required` to PHP 0.2.x/0.3.x too, so a token-only site still on those versions denies locked pages until it upgrades
+(or sets `'check_resource' => false` for identity-only checks).
 
 ## What you upload
 
