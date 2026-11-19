@@ -8,9 +8,29 @@ This drop-in works on PHP 7.4 or newer (shared hosting and cPanel are fine). It 
 
 Which tokens unlock the site is set in your [TOKENLOCK dashboard](https://proveitonchain.com/tokenlock/dashboard), not in this code.
 
+## Upgrading to 0.4.4 (security correction)
+
+Current release: **0.4.4**, a security correction with no new features. **Upgrade from 0.4.3.** An external review and
+a widened audit (every function in the package fuzzed) found validation that only ran on some paths. In self-verify:
+
+- `tokenlock_sv_evaluate()` validates the authorization request before any mode branch: `$resource` is
+  `array('path' => …, 'method' => …)` or `array('identity_only' => true)`; `null` or a malformed array is `bad_resource`
+  (0.4.3 treated `null` as identity, and a token-mode policy allowed a valid resource). A token-mode policy with a
+  resource is `policy_required`. `$held` must be a list of asset names (`bad_input`; `null` no longer skips the
+  holdings check).
+- **Policy validity window enforced everywhere:** a policy past its `expires_at` is `policy_expired` and one issued more
+  than 5 minutes in the future is `policy_invalid`, whether it comes from `tokenlock_sv_local_policy()`, a custom
+  callable, a signed bundle or is passed straight to `tokenlock_sv_evaluate()`. 0.4.3 let an explicitly expired local
+  policy authorize. A local policy that leaves out `expires_at` does not expire.
+- `tokenlock_sv_verify_local_pass()` needs a `pass_secret` of at least 32 characters (`bad_secret`): 0.4.3 used `''`
+  when it was missing, which verifies passes anyone can forge. It also never answers `valid => true` before the pass is
+  checked (0.4.3 answered `valid => true, code => bad_path` for any token, even garbage, when the path was malformed).
+
+Advisory: https://proveitonchain.com/security/advisories/2026-11-18#correction-044
+
 ## Upgrading to 0.4.3 (security correction, breaking: explicit identity_only)
 
-Current release: **0.4.3**, a security correction with no new features. **Upgrade from 0.4.2.** In 0.4.2 a mistyped,
+0.4.3 was a security correction with no new features (superseded by 0.4.4). **Upgrade from 0.4.2.** In 0.4.2 a mistyped,
 unknown, empty, `null` or non-string resource key (e.g. `array('pth' => '/admin')`, `array('path' => '')`) was dropped
 and `tokenlock_verify_pass()` / `tokenlock_sv_verify_local_pass()` did an identity-only check instead. Since 0.4.3:
 

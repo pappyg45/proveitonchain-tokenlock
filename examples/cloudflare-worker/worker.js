@@ -38,7 +38,7 @@ const rawPath = (u) => (String(u).match(/^[a-z][a-z0-9+.-]*:\/\/[^/?#]*([^?#]*)/
  * { ok:false, v, code }; throws when the API can't answer. Authorization denials keep the server's reason
  * (route_not_allowed, key_revoked, …); only a malformed answer is 'incomplete_answer'.
  */
-const VERSION = '0.4.3';
+const VERSION = '0.4.4';
 const MAX_ANSWER_BYTES = 65536;
 const REMOVED = ['TOKENLOCK_FAIL_OPEN', 'TOKENLOCK_CHECK_RESOURCE', 'TOKENLOCK_STRICT'];
 /** Config check (0.4.2). Returns null when the settings are usable, else the reason. Never guesses a default for a bad value. */
@@ -62,15 +62,20 @@ export function configProblem(env) {
 }
 // 0.4.3: the authorization request is explicit. resource = { path, method, environment? } (validated) or
 // { identityOnly: true }. Anything else (missing, unknown fields, wrong types, empty or padded values) is refused.
+// 0.4.4: a plain object with OWN fields only (same rule as validateResource() in the SDK). 0.4.3 used `in`, which also
+// sees inherited fields, but type-checked only own keys: inherited path/method values skipped the string checks.
 function checkResource(resource) {
   if (!resource || typeof resource !== 'object' || Array.isArray(resource)) return 'bad_resource';
+  const proto = Object.getPrototypeOf(resource);
+  if (proto !== Object.prototype && proto !== null) return 'bad_resource';
   const keys = Object.keys(resource);
-  if ('identityOnly' in resource) return resource.identityOnly === true && keys.length === 1 ? null : 'bad_resource';
+  const has = (k) => Object.prototype.hasOwnProperty.call(resource, k);
+  if (has('identityOnly')) return resource.identityOnly === true && keys.length === 1 ? null : 'bad_resource';
   for (const k of keys) if (!['path', 'method', 'environment'].includes(k)) return 'bad_resource';
-  if (!('path' in resource) || !('method' in resource)) return 'bad_resource';
+  if (!has('path') || !has('method')) return 'bad_resource';
   for (const k of keys) { const v = resource[k]; if (typeof v !== 'string' || v === '' || v.trim() !== v) return 'bad_resource'; }
   if (!/^[A-Za-z]{1,10}$/.test(resource.method)) return 'bad_resource';
-  if ('environment' in resource && !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,29}$/.test(resource.environment)) return 'bad_resource';
+  if (has('environment') && !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,29}$/.test(resource.environment)) return 'bad_resource';
   if (!resource.path.startsWith('/') || canonicalPath(resource.path) === null) return 'bad_path';
   return null;
 }
@@ -97,6 +102,13 @@ const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?(Z|[+-]\d{2}:\
 const isObj = (x) => !!x && typeof x === 'object' && !Array.isArray(x);
 /** Same rules as the SDK's strictCheck (0.4.2): wrong types, missing fields and contradictions are all a no. */
 export function strictCheck(v, resource) {
+  // 0.4.4: the resource this answer is checked against goes through the same schema first (0.4.3 compared whatever it
+  // was given, so a misspelled { pth } matched an answer that named no path). null/undefined = identity-only answer.
+  if (resource !== null && resource !== undefined) {
+    const rc = checkResource(resource);
+    if (rc) return { ok: false, code: rc };
+    if (resource.identityOnly === true) resource = null;
+  }
   const no = (code) => ({ ok: false, code: isObj(v) && v.valid === false && typeof v.code === 'string' && v.code ? v.code : code });
   if (!isObj(v)) return no('bad_answer');
   const a = v.access;

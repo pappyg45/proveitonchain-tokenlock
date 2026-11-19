@@ -1,6 +1,6 @@
 # TOKENLOCK self-verify, spec v1
 
-Status: preview (SDK 0.4.3, self-verify since 0.3.0; PHP drop-in 0.4.3; 0.4.2 adds policy validation: malformed policies are `policy_invalid`; 0.4.3 adds the strict request schema: malformed `resource` or unknown options are `bad_resource`, identity-only is explicit). Enterprise. Web version: https://proveitonchain.com/docs/self-verify
+Status: preview (SDK 0.4.4, self-verify since 0.3.0; PHP drop-in 0.4.4; 0.4.2 adds policy validation: malformed policies are `policy_invalid`; 0.4.3 adds the strict request schema: malformed `resource` or unknown options are `bad_resource`, identity-only is explicit; 0.4.4 enforces every policy's validity window wherever it is used and validates `evaluate()` input before any mode branch). Enterprise. Web version: https://proveitonchain.com/docs/self-verify
 
 Self-verify lets **your server** run "Sign in with your Token" from start to finish. You issue the challenge and keep
 the nonce. You check the wallet signature locally, and you read holdings from a source you pick. For the sign-in itself,
@@ -89,7 +89,14 @@ policy  = { v:1, typ:"tokenlock.policy", site_id, seq, state_version, issued_at,
 - The bundle has no owner names or emails in it.
 - Checks: the signature is by a pinned `kid`, `site_id` matches, `expires_at` is in the future, and `seq` is not lower than
   the last one seen (rollback protection). `seq` is the issue time in ms, so it always goes up.
-- `localPolicy(obj | fn)`: the same shape, but you are the source, so it needs no signature.
+- `localPolicy(obj | fn)`: the same shape, but you are the source, so it needs no signature. Left-out `issued_at` /
+  `expires_at` default to 1970 / 9999 (no expiry); a set `expires_at` is enforced on every use.
+- **Validity window (0.4.4, every policy: signed, local, custom source, or passed to `evaluate()`):** `expires_at <= now`
+  is `policy_expired`; `issued_at` more than 5 minutes after `now` is `policy_invalid`. `now` is the decision's time
+  (the current time unless a test passes one).
+- `evaluate(policy, { address, held, resource | identityOnly: true, now? })` checks, in order: the request (exactly one
+  of a valid `resource` or `identityOnly: true`, else `bad_resource` / `bad_path`), `held` (a list of asset names, else
+  `bad_input`), the policy (shape and window), then the mode (token mode + resource = `policy_required`).
 
 ### Revocation freshness
 
@@ -117,8 +124,9 @@ The pass secret is yours: at least 32 characters, and never sent to us. A pass i
 in an HttpOnly cookie or an Authorization header. Lifetime is the challenge's `pass_ttl_s` (default 900 s), capped by
 the key's `pass_ttl_s` and the agent/default TTLs in the policy, and by the key's `expires_at`.
 `verifyLocalPass(token, { passSecret, policy?, resource | identityOnly: true })` gives one of these results (0.4.3: exactly one of `resource` or `identityOnly: true`):
-- `valid:false, code:"bad_resource"`: unknown option, no `resource` and no `identityOnly`, or a malformed `resource` (unknown field, path without method, empty/whitespace/padded/`null`/non-string value). Never treated as identity-only. `bad_path` for a relative or non-canonical path.
-- `valid:false`: forged, expired, revoked, or the policy is unavailable. Answer 401.
+- `valid:false, code:"bad_secret"`: `passSecret` missing or shorter than 32 characters (0.4.4).
+- `valid:false, code:"bad_resource"`: unknown option, no `resource` and no `identityOnly`, or a malformed `resource` (unknown field, path without method, empty/whitespace/padded/`null`/non-string value). Never treated as identity-only. `bad_path` for a relative or non-canonical path (always `valid:false`: the pass was not checked; 0.4.3 answered `valid:true` here).
+- `valid:false`: forged, expired, revoked, or the policy is unavailable, expired or not yet valid. Answer 401.
 - `valid:false, allowed:false, code:"policy_required"`: a `resource` was given without a `policy`, or with a
   token-mode policy (no route rules). This is a configuration error (answer 500, or 403 in middleware, and fix the
   config): route, method and environment rules live in a registered-keys policy. `identity_valid` is `true` when the

@@ -69,7 +69,7 @@ test('Cloudflare worker 0.4.0: token-only site needs TOKENLOCK_TOKEN_ONLY=1; it 
     assert.equal(r.status, 403); assert.equal((await r.json()).code, 'policy_required', 'token-only site without TOKENLOCK_TOKEN_ONLY: denied');
     r = await get('/members/x', { ...env, TOKENLOCK_TOKEN_ONLY: '1' });
     assert.equal(r.status, 200); assert.equal(await r.text(), 'ORIGIN', 'with TOKENLOCK_TOKEN_ONLY=1: holder reaches the origin');
-    assert.ok(sent.every((s) => s.client === 'cf-worker/0.4.3'));
+    assert.ok(sent.every((s) => s.client === 'cf-worker/0.4.4'));
     registered = true;
     r = await get('/admin/x', { ...env, TOKENLOCK_TOKEN_ONLY: '1' });
     assert.equal(r.status, 403, 'registered keys: TOKENLOCK_TOKEN_ONLY cannot bypass the route policy'); assert.equal((await r.json()).code, 'route_not_allowed');

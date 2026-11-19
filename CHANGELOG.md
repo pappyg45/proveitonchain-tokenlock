@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.4.4 (security correction)
+
+No new features. Corrects validation gaps reported by an external reviewer and found by a widened audit that enumerates
+every exported function (Node SDK, PHP drop-in, Cloudflare worker, hosted API) and fuzzes each one. 0.4.3 is deprecated
+on npm. Regression tests were written first and failed against npm 0.4.3 (`test/correction-044.test.mjs`: 11 of 13
+failed; `php/test/correction-044.php`: 31 of 45 failed; `test/fuzz-exports.test.mjs`: 332 findings; all pass on 0.4.4).
+Advisory: https://proveitonchain.com/security/advisories/2026-11-18#correction-044
+
+- **Self-verify `evaluate()` validates before any mode branch** (external review). 0.4.3 returned `allowed: true` from
+  the token-mode branch before looking at the resource (a normal resource, `{ pth: '/private' }` or an array path).
+  Now: the request is checked first (exactly one of a valid `resource` or `identityOnly: true`; unknown options,
+  `null` or a missing resource are `bad_resource`), then `held` (must be a list of strings, else `bad_input`; `null` no
+  longer skips the holdings check), then the policy, then the mode: a token-mode policy with a resource is
+  `policy_required`.
+- **Policy validity window enforced everywhere** (external review). An explicitly expired `localPolicy()` still
+  authorized in 0.4.3 (only the signed-bundle path checked expiry). `validatePolicy()` now refuses `expires_at <= now`
+  (`policy_expired`) and an `issued_at` more than 5 minutes ahead (`policy_invalid`, previously signed bundles only), and
+  it runs on every use: `localPolicy().get()`, custom sources, `evaluate()`, `verifyLocalPass()`, `verifySignIn()`.
+- **`verifyLocalPass()` checks `passSecret`** (widened audit): a missing, empty or short secret is `bad_secret`. 0.4.3
+  verified passes forged with an empty HMAC key when `passSecret` was `''` (for example an unset environment variable).
+- **`verifyLocalPass()` never answers `valid: true` before the pass is verified** (widened audit): a malformed path is
+  checked first, and 0.4.3 answered `{ valid: true, allowed: false, code: 'bad_path' }` for any token, even garbage.
+- **Cloudflare worker:** `strictCheck(answer, resource)` validates `resource` (a misspelled `{ pth }` matched an answer
+  naming no path); `verify()` accepts only plain objects with own fields (inherited fields skipped the type checks).
+- **`validateResource()`** reads own fields only.
+- **Starters** (`examples/express`, `examples/next-app`): depend on `^0.4.4` (they said `^0.1.0`, which excludes 0.4.x),
+  set `tokenOnly: true` (holder sites), and the Next members page calls `getPass(undefined, { identityOnly: true })`.
+- **Docs:** `authorize()` without a resource is `bad_resource` with status 400 (the README said `resource_required`,
+  status 0); PHP current version; identity-only guidance names `identityOnly: true`; the `policy_required` reason says
+  to pass `{ identityOnly: true }` instead of "drop `resource`".
+
 ## 0.4.3 (security correction, breaking: explicit identity-only)
 
 No new features. Corrects a fail-open found by the 0.4.2 production regression run: in 0.4.2 an unknown, mistyped,

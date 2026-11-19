@@ -5,7 +5,7 @@
  */
 export const DEFAULT_API = 'https://proveitonchain.com';
 export const DEFAULT_COOKIE = 'tokenlock_pass';
-export const VERSION = '0.4.3';
+export const VERSION = '0.4.4';
 
 export interface PassInfo {
   /** True only if the pass is real, unexpired, issued for your site and holds a token your site accepts. */
@@ -273,19 +273,20 @@ export function validateResource(r: unknown, name = 'verifyPass'): Resource | nu
   const proto = r !== null && typeof r === 'object' ? Object.getPrototypeOf(r) : undefined;
   if (r === null || typeof r !== 'object' || Array.isArray(r) || (proto !== Object.prototype && proto !== null)) throw badResource(`${name}: missing or malformed authorization request. ${IDENTITY_HINT}`);
   const o = r as Record<string, unknown>; const keys = Object.keys(o);
+  const has = (k: string) => Object.prototype.hasOwnProperty.call(o, k); // own fields only (0.4.4: never an inherited/polluted one)
   for (const k of keys) if (k !== 'identityOnly' && !(RESOURCE_KEYS as readonly string[]).includes(k)) throw badResource(`${name}: unknown authorization field "${k}". ${IDENTITY_HINT}`);
-  if ('identityOnly' in o) {
+  if (has('identityOnly')) {
     if (o.identityOnly !== true || keys.length !== 1) throw badResource(`${name}: identityOnly must be exactly true and can't be combined with path, method or environment.`);
     return null;
   }
-  if (!('path' in o) || !('method' in o)) throw badResource(`${name}: an authorization request needs both path and method. ${IDENTITY_HINT}`);
+  if (!has('path') || !has('method')) throw badResource(`${name}: an authorization request needs both path and method. ${IDENTITY_HINT}`);
   const str = (k: string) => { const v = o[k]; if (typeof v !== 'string' || v === '' || v.trim() !== v) throw badResource(`${name}: ${k} must be a non-empty string without surrounding whitespace.`); return v; };
   const path = str('path');
   if (!path.startsWith('/')) throw new TokenlockError('Not a valid path.', 400, 'bad_path');
   const cp = resourcePath(path); if (!cp) throw new TokenlockError('Not a valid path.', 400, 'bad_path');
   const method = str('method'); if (!METHOD_RE.test(method)) throw badResource(`${name}: method must be an HTTP method name (letters only, at most 10).`);
   const out: Resource = { path: cp, method: method.toUpperCase() };
-  if ('environment' in o) { const e = str('environment'); if (!ENVIRONMENT_RE.test(e)) throw badResource(`${name}: environment must be 1–30 letters, digits, '_', '.' or '-'.`); out.environment = e; }
+  if (has('environment')) { const e = str('environment'); if (!ENVIRONMENT_RE.test(e)) throw badResource(`${name}: environment must be 1–30 letters, digits, '_', '.' or '-'.`); out.environment = e; }
   return out;
 }
 const CLIENT_KEYS = ['secretKey', 'siteKey', 'apiBase', 'fetch', 'timeoutMs', 'cache', 'strict'];

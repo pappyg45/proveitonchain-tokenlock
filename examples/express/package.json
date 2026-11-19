@@ -3,5 +3,5 @@
   "private": true,
   "type": "module",
   "scripts": { "start": "node server.js" },
-  "dependencies": { "@proveitonchain/tokenlock": "^0.1.0", "express": "^4.21.0" }
+  "dependencies": { "@proveitonchain/tokenlock": "^0.4.4", "express": "^4.21.0" }
 }
