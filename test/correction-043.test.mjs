@@ -183,3 +183,23 @@ test('self-verify evaluate() refuses a malformed resource instead of skipping th
   }
   assert.deepEqual(bad, [], bad.join(' | '));
 });
+
+// Found by the 0.4.3 interface audit (written before the fix): a Cloudflare TOKENLOCK_PROTECT / TOKENLOCK_API_PATHS
+// entry that is not a plain path prefix (e.g. "/api/*", "api", "/api/:path*") matched nothing, so the paths it was meant
+// to protect were served unprotected. Since 0.4.3 it is a configuration error: protected paths answer 500 bad_config.
+test('cloudflare: a TOKENLOCK_PROTECT entry that is not a plain path prefix is bad_config, never silently unprotected', async () => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => { const u = String(input?.url || input); if (u.startsWith('https://origin.example/')) return new Response('SECRET', { status: 200 }); throw new Error('no API in this test'); };
+  try {
+    for (const protect of ['/api/*', 'api', '/api/:path*', '/api,/admin/*', '/api/**', '/api,admin']) {
+      const envX = { TOKENLOCK_SECRET_KEY: SK, TOKENLOCK_SITE_KEY: 'pk_x', TOKENLOCK_PROTECT: protect };
+      const res = await cfDefault.fetch(new Request('https://origin.example/api/x', { headers: { accept: 'application/json' } }), envX);
+      const body = await res.text();
+      assert.ok(!body.includes('SECRET'), `${JSON.stringify(protect)}: /api/x must not be served (status ${res.status})`);
+      assert.equal(res.status, 500, `${JSON.stringify(protect)}: expected 500 bad_config, got ${res.status} ${body.slice(0, 120)}`);
+    }
+    const okEnv = { TOKENLOCK_SECRET_KEY: SK, TOKENLOCK_SITE_KEY: 'pk_x', TOKENLOCK_PROTECT: '/api,/admin' };
+    const res = await cfDefault.fetch(new Request('https://origin.example/api/x', { headers: { accept: 'application/json' } }), okEnv);
+    assert.equal(res.status, 401, 'control: a plain prefix list protects /api/x');
+  } finally { globalThis.fetch = realFetch; }
+});
