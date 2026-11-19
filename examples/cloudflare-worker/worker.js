@@ -49,6 +49,14 @@ export function configProblem(env) {
   if (env.TOKENLOCK_TOKEN_ONLY !== undefined && !['', '0', '1'].includes(String(env.TOKENLOCK_TOKEN_ONLY))) return 'TOKENLOCK_TOKEN_ONLY must be 1 or 0.';
   if (env.TOKENLOCK_TIMEOUT_MS !== undefined && !(/^\d{1,5}$/.test(String(env.TOKENLOCK_TIMEOUT_MS)) && +env.TOKENLOCK_TIMEOUT_MS >= 1 && +env.TOKENLOCK_TIMEOUT_MS <= 60000)) return 'TOKENLOCK_TIMEOUT_MS must be a whole number of milliseconds from 1 to 60000.';
   if (env.TOKENLOCK_ENVIRONMENT !== undefined && !(typeof env.TOKENLOCK_ENVIRONMENT === 'string' && /^[A-Za-z0-9][A-Za-z0-9_.-]{0,29}$/.test(env.TOKENLOCK_ENVIRONMENT))) return 'TOKENLOCK_ENVIRONMENT must be 1-30 letters, digits, _, . or - (no spaces, not empty).';
+  // 0.4.3: TOKENLOCK_PROTECT / TOKENLOCK_API_PATHS are plain path prefixes. A glob or pattern ("/api/*", "/api/:path*")
+  // or a relative entry matched nothing, which left the intended paths unprotected; it is a configuration error now.
+  for (const k of ['TOKENLOCK_PROTECT', 'TOKENLOCK_API_PATHS']) {
+    if (env[k] === undefined) continue;
+    const items = String(env[k]).split(',').map((x) => x.trim()).filter(Boolean);
+    if (k === 'TOKENLOCK_PROTECT' && !items.length) return 'TOKENLOCK_PROTECT is empty; list path prefixes such as /members,/admin.';
+    for (const it of items) if (!/^\/[A-Za-z0-9._~!$&'()+,;=@%\/-]*$/.test(it) || it.includes('*') || it.includes(':')) return `${k} entries must be plain path prefixes such as /members (no *, : or relative paths); got "${it.slice(0, 60)}".`;
+  }
   if (env.TOKENLOCK_API !== undefined) { try { const u = new URL(env.TOKENLOCK_API); if (u.protocol !== 'https:' && u.protocol !== 'http:') return 'TOKENLOCK_API must be an http(s) URL.'; } catch { return 'TOKENLOCK_API must be an http(s) URL.'; } }
   return null;
 }
@@ -150,6 +158,8 @@ export default {
     if (path === SIGN_IN) return new Response(SIGNIN_HTML(env.TOKENLOCK_SITE_KEY, env.TOKENLOCK_API || 'https://proveitonchain.com'), { headers: { 'content-type': 'text/html; charset=utf-8' } });
     const bad = configProblem(env);
     const badConfig = () => json({ error: 'This site\'s TOKENLOCK settings are invalid, so protected access is refused.', code: 'bad_config', reason: bad }, 500);
+    // 0.4.3: when the protected-path list itself is unusable, no path can be known to be public: refuse everything.
+    if (bad && /^TOKENLOCK_(PROTECT|API_PATHS) /.test(bad)) return badConfig();
     if (path === '/api/tokenlock/session' && req.method === 'POST') {
       if (bad) return badConfig();
       if (req.headers.get('origin') !== url.origin) return new Response('Wrong site', { status: 403 });
