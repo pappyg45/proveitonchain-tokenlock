@@ -25,6 +25,8 @@ and `tokenlock_verify_pass()` / `tokenlock_sv_verify_local_pass()` did an identi
   `tokenlock_sv_verify_local_pass($pass, array('pass_secret' => …, 'identity_only' => true))`. A call with no resource
   is `bad_resource`. The hosted API applies the same schema.
 - `'environment'` in config must match the same format (`''` = none); invalid is `bad_config`.
+- Path patterns in `tokenlock_protect()` and the early block (`protect`, `public`, `exclude_paths`) must start with `/`
+  (or be `*`). `'members/*'` matched nothing and silently left pages unprotected; it is now `bad_config` (500 / 503).
 
 Advisory: https://proveitonchain.com/security/advisories/2026-11-18#correction-043
 

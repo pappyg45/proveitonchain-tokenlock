@@ -867,6 +867,22 @@ function tokenlock_early_keys()
     return array('protect', 'public', 'exclude_paths', 'admin_ips', 'deny_ips', 'trusted_proxies');
 }
 
+/**
+ * 0.4.3: path patterns ('/members/*', '/api', '*') must be paths. A pattern without a leading '/' (e.g. 'members/*')
+ * or an empty one matched nothing, which silently left pages unprotected; it is a configuration error now.
+ * Returns null when every pattern is usable, else why not.
+ */
+function tokenlock_patterns_problem($list)
+{
+    foreach ((array) $list as $p) {
+        $t = is_string($p) ? trim($p) : '';
+        if ($t === '' || ($t !== '*' && $t[0] !== '/')) {
+            return "path patterns must start with '/' (e.g. '/members/*'); got " . (is_string($p) ? "'" . substr($p, 0, 60) . "'" : gettype($p)) . '.';
+        }
+    }
+    return null;
+}
+
 /** null if the 'early' settings are usable, else why not. */
 function tokenlock_early_problem($e)
 {
@@ -882,6 +898,12 @@ function tokenlock_early_problem($e)
         }
         if (!tokenlock_str_list_ok($v)) {
             return "'early' setting '$k' must be a path/IP or a list of them.";
+        }
+        if (in_array($k, array('protect', 'public', 'exclude_paths'), true)) {
+            $bad = tokenlock_patterns_problem($v);
+            if ($bad !== null) {
+                return "'early' setting '$k': " . $bad;
+            }
         }
     }
     return null;
@@ -1221,6 +1243,15 @@ function tokenlock_is_api_request($path = null)
 function tokenlock_protect($patterns, $public = array())
 {
     $path = tokenlock_canonical_path(tokenlock_request_path());
+    $bad = (!is_array($patterns) && !is_string($patterns)) || (!is_array($public) && !is_string($public)) || (array) $patterns === array() ? 'tokenlock_protect() needs a non-empty list of path patterns.' : tokenlock_patterns_problem($patterns);
+    if ($bad === null) {
+        $bad = tokenlock_patterns_problem($public);
+    }
+    if ($bad !== null) {
+        // 0.4.3: an unusable pattern list never means "nothing is protected" (500, logged; the reason is not shown).
+        error_log('[TOKENLOCK] configuration error in tokenlock_protect(), page refused: ' . $bad);
+        tokenlock_send_bad_config($path !== null && tokenlock_is_api_request($path));
+    }
     if ($path === null) {
         tokenlock_send_json(400, array('error' => 'Not a valid path.', 'code' => 'bad_path', 'reason' => 'Not a valid path.'));
     }
