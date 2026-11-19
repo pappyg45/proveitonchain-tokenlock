@@ -1,5 +1,5 @@
 /**
- * Complete enterprise self-verify flow (SDK 0.3.1 docs/examples).
+ * Complete enterprise self-verify flow (SDK 0.3.3 docs/examples).
  *
  * In an app, import from '@proveitonchain/tokenlock/self-verify'. This file
  * imports the built package in this repo so tests can run the same logic.
@@ -11,7 +11,10 @@
  */
 import * as SV from '../dist/self-verify.js';
 
-/** Default refresh and bundle lifetime, matching signedPolicy() and the hosted policy API. */
+/**
+ * Default refresh and bundle lifetime, matching signedPolicy() and the hosted policy API. A failed load is
+ * retried with backoff (5 s, doubling, max refreshSeconds), not on every call; policy.status() shows the state.
+ */
 export const POLICY_REFRESH_SECONDS = 60;
 export const POLICY_BUNDLE_TTL_SECONDS = 600;
 

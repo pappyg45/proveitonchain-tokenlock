@@ -206,31 +206,58 @@ export function verifyPolicyBundle(bundle: PolicyBundle, o: { publicKeys: Record
 }
 
 export interface PolicySource { get(): Promise<Policy> }
+/** Load state of a `signedPolicy` source (for health checks and logs). Times are ms since epoch. */
+export interface SignedPolicyStatus { seq: number | null; fetched_at: number | null; expires_at: string | null; failures: number; last_error: string | null; next_retry_at: number | null; loads: number }
 /**
- * Pull the signed bundle from our API with your secret key and cache it. Refreshes every `refreshSeconds` (default 60);
- * if a refresh fails the cached bundle is used until it expires, then access fails closed (`policy_expired`).
+ * Pull the signed bundle from our API with your secret key and cache it. Refreshes every `refreshSeconds` (default 60).
+ * Concurrent calls share one in-flight load. After a failed load, no new load starts until a backoff window has passed:
+ * `retryMinSeconds` (default 5), doubling on each consecutive failure up to `retryMaxSeconds` (default `refreshSeconds`).
+ * During that window `get()` answers at once without a network call: the cached bundle while it is unexpired, otherwise
+ * the last error (`policy_unavailable`, or the bundle's own error code). When the cached bundle expires and no refresh has
+ * succeeded, access fails closed (`policy_expired`).
  */
-export function signedPolicy(o: { siteId: string; secretKey: string; publicKeys: Record<string, string> | string[]; api?: string; refreshSeconds?: number; ttlSeconds?: number; fetch?: FetchLike; timeoutMs?: number; load?: () => Promise<PolicyBundle> }): PolicySource {
+export function signedPolicy(o: { siteId: string; secretKey: string; publicKeys: Record<string, string> | string[]; api?: string; refreshSeconds?: number; retryMinSeconds?: number; retryMaxSeconds?: number; ttlSeconds?: number; fetch?: FetchLike; timeoutMs?: number; load?: () => Promise<PolicyBundle> }): PolicySource & { status(): SignedPolicyStatus } {
   const api = (o.api || 'https://proveitonchain.com').replace(/\/$/, ''); const f = o.fetch || (globalThis.fetch as any);
+  const refreshMs = Math.max(0, o.refreshSeconds ?? 60) * 1000;
+  const retryMinMs = Math.max(0.1, o.retryMinSeconds ?? 5) * 1000;
+  const retryMaxMs = Math.max(retryMinMs, (o.retryMaxSeconds ?? Math.max(1, o.refreshSeconds ?? 60)) * 1000);
   let cur: Policy | null = null, fetchedAt = 0, seq = -1, inflight: Promise<void> | null = null;
+  let failures = 0, retryAt = 0, lastErr: SelfVerifyError | null = null, loads = 0;
   const load = o.load || (async () => {
     const r = await getJson(f, `${api}/api/v1/tokenlock/access/policy${o.ttlSeconds ? '?ttl=' + o.ttlSeconds : ''}`, o.timeoutMs ?? 8000, { authorization: 'Bearer ' + o.secretKey });
     if (!r.ok) throw new SelfVerifyError('policy_unavailable', 'Policy endpoint answered ' + r.status, 503);
     return r.body as PolicyBundle;
   });
+  const asErr = (e: any) => e instanceof SelfVerifyError ? e : new SelfVerifyError('policy_unavailable', 'Could not load the policy bundle.', 503);
   async function refresh() {
-    const b = await load();
-    const p = verifyPolicyBundle(b, { publicKeys: o.publicKeys, siteId: o.siteId, minSeq: seq < 0 ? undefined : seq });
-    cur = p; seq = p.seq; fetchedAt = Date.now();
-  }
-  return { async get() {
-    if (!cur || Date.now() - fetchedAt > (o.refreshSeconds ?? 60) * 1000) {
-      inflight ||= refresh().finally(() => { inflight = null; });
-      try { await inflight; } catch (e) { if (!cur) throw e instanceof SelfVerifyError ? e : new SelfVerifyError('policy_unavailable', 'Could not load the policy bundle.', 503); }
+    loads++;
+    try {
+      const b = await load();
+      const p = verifyPolicyBundle(b, { publicKeys: o.publicKeys, siteId: o.siteId, minSeq: seq < 0 ? undefined : seq });
+      cur = p; seq = p.seq; fetchedAt = Date.now(); failures = 0; retryAt = 0; lastErr = null;
+    } catch (e: any) {
+      failures++; lastErr = asErr(e);
+      retryAt = Date.now() + Math.min(retryMaxMs, retryMinMs * 2 ** Math.min(failures - 1, 30));
+      throw lastErr;
     }
-    if (!cur || !(Date.parse(cur.expires_at) > Date.now())) throw new SelfVerifyError('policy_expired', 'Policy bundle expired and could not be refreshed.', 503);
-    return cur;
-  }, };
+  }
+  return {
+    async get() {
+      const due = !cur || Date.now() - fetchedAt > refreshMs;
+      if (due && (inflight || Date.now() >= retryAt)) {
+        inflight ||= refresh().finally(() => { inflight = null; });
+        try { await inflight; } catch (e) { if (!cur) throw asErr(e); }
+      } else if (!cur) {
+        throw lastErr || new SelfVerifyError('policy_unavailable', 'Could not load the policy bundle.', 503); // backing off
+      }
+      if (!cur || !(Date.parse(cur.expires_at) > Date.now())) throw new SelfVerifyError('policy_expired', 'Policy bundle expired and could not be refreshed.', 503);
+      return cur;
+    },
+    status() {
+      const c = cur as Policy | null;
+      return { seq: c ? c.seq : null, fetched_at: c ? fetchedAt : null, expires_at: c ? c.expires_at : null, failures, last_error: lastErr ? lastErr.code : null, next_retry_at: failures ? retryAt : null, loads };
+    },
+  };
 }
 /** Your own policy (file, database, config): same shape, no signature needed because you are the source. */
 export function localPolicy(get: Partial<Policy> | (() => Partial<Policy> | Promise<Partial<Policy>>)): PolicySource {
@@ -287,6 +314,7 @@ const REASONS: Record<string, string> = {
   not_registered: 'This wallet is not a registered key for this site.', key_revoked: 'This key was revoked.', key_expired: 'This key has expired.', pending_approval: 'Waiting for the site admin to approve this wallet.',
   org_not_approved: 'The organization for this key is not approved.', org_required: 'This site requires keys to belong to an organization.', entitlement_revoked: 'This token no longer unlocks this site.',
   policy_expired: 'Access policy is out of date. Try again in a minute.', policy_unavailable: 'Access policy is unavailable. Try again in a minute.',
+  policy_required: 'Configuration error: a resource (path, method or environment) was given but no policy is configured, so its permissions cannot be checked. Pass `policy` (signedPolicy or localPolicy), or drop `resource` for an identity-only check.',
 };
 export interface SelfVerifyConfig { store: NonceStore; holdings: HoldingsProvider; passSecret: string; policy?: PolicySource; clockSkewSeconds?: number }
 /** Verify a sign-in with no call to our API (except providers/policy you chose). Fails closed on any lookup error. */
@@ -327,8 +355,13 @@ export function issuePass(p: { sub: string; h: string[]; k: string | null; n: st
   return `tl3.${body}.${createHmac('sha256', secret).update('tl3.' + body).digest('base64url')}`;
 }
 const SCOPE = new Set(['route_not_allowed', 'method_not_allowed', 'environment_not_allowed', 'bad_path']);
-/** Check a local pass. `valid` = authentic, unexpired and access still granted; `allowed` also covers this resource. */
-export async function verifyLocalPass(token: string, o: { passSecret: string; policy?: PolicySource; resource?: Resource; now?: number }): Promise<{ valid: boolean; allowed: boolean; code: string; reason: string; address?: string; assets_held?: string[]; expires_at?: string; key_id?: string | null }> {
+/**
+ * Check a local pass. `valid` = authentic, unexpired and access still granted; `allowed` also covers this resource.
+ * Identity only (no `resource`): `policy` is optional. With a `resource` ({ path, method, environment }) a `policy` is
+ * required, because route, method and environment rules live in the policy: without one the answer is
+ * `{ valid: false, allowed: false, code: 'policy_required' }` (a configuration error, never an allow).
+ */
+export async function verifyLocalPass(token: string, o: { passSecret: string; policy?: PolicySource; resource?: Resource | null; now?: number }): Promise<{ valid: boolean; allowed: boolean; code: string; reason: string; address?: string; assets_held?: string[]; expires_at?: string; key_id?: string | null }> {
   const no = (code: string, extra = {}) => ({ valid: SCOPE.has(code), allowed: false, code, reason: REASONS[code] || code, ...extra });
   const m = /^tl3\.([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]{43})$/.exec(String(token || ''));
   if (!m) return no('bad_pass');
@@ -344,6 +377,9 @@ export async function verifyLocalPass(token: string, o: { passSecret: string; po
     const ev = evaluate(pol, { address: p.sub, held: p.h, resource: o.resource || null, now });
     if (!ev.allowed) return no(ev.reason, base);
     if (pol.mode === 'registered_keys' && (ev.key?.id ?? null) !== (p.k ?? null)) return no('not_registered', base); // pass bound to its key
-  } else if (o.resource) { /* token-only: no per-route rules */ }
+  } else if (o.resource != null) {
+    // 0.3.2 returned allowed: true here, which read as "route, method and environment were checked". They were not.
+    return { valid: false, allowed: false, code: 'policy_required', reason: REASONS.policy_required, ...base };
+  }
   return { valid: true, allowed: true, code: 'ok', reason: 'Allowed.', ...base };
 }
