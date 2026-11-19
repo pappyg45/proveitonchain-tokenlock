@@ -8,6 +8,52 @@ This drop-in works on PHP 7.4 or newer (shared hosting and cPanel are fine). It 
 
 Which tokens unlock the site is set in your [TOKENLOCK dashboard](https://proveitonchain.com/tokenlock/dashboard), not in this code.
 
+## Upgrading to 0.4.3 (security correction, breaking: explicit identity_only)
+
+Current release: **0.4.3**, a security correction with no new features. **Upgrade from 0.4.2.** In 0.4.2 a mistyped,
+unknown, empty, `null` or non-string resource key (e.g. `array('pth' => '/admin')`, `array('path' => '')`) was dropped
+and `tokenlock_verify_pass()` / `tokenlock_sv_verify_local_pass()` did an identity-only check instead. Since 0.4.3:
+
+- One strict schema for `tokenlock_verify_pass()`, `tokenlock_require()` / `tokenlock_protect()` / the early block
+  (resource built from the request) and self-verify (`tokenlock_sv_evaluate()`, `tokenlock_sv_verify_local_pass()`).
+  Allowed keys: `path`, `method`, `environment`, `identity_only`.
+- Unknown keys, a path without a method (or the reverse), non-string, empty, whitespace-only, padded or `null` values,
+  a method that is not 1–10 letters, an environment that is not 1–30 of `A-Z a-z 0-9 _ . -`: `TokenlockException`
+  `bad_resource` (HTTP 400) from `tokenlock_verify_pass()`; `bad_resource` from self-verify. Never truncated, never
+  identity-only. Relative or non-canonical paths answer `bad_path`. Unknown `$opts` keys are `bad_config`.
+- **Breaking:** identity-only is explicit: `tokenlock_verify_pass($pass, array('identity_only' => true))`,
+  `tokenlock_sv_verify_local_pass($pass, array('pass_secret' => …, 'identity_only' => true))`. A call with no resource
+  is `bad_resource`. The hosted API applies the same schema.
+- `'environment'` in config must match the same format (`''` = none); invalid is `bad_config`.
+- Path patterns in `tokenlock_protect()` and the early block (`protect`, `public`, `exclude_paths`) must start with `/`
+  (or be `*`). `'members/*'` matched nothing and silently left pages unprotected; it is now `bad_config` (500 / 503).
+
+Advisory: https://proveitonchain.com/security/advisories/2026-11-18#correction-043
+
+## Upgrading to 0.4.2 (security hardening, breaking: removed options)
+
+0.4.2 was a security-hardening release with no new features (superseded by 0.4.3).
+
+- **Removed:** `'fail_open'` and `'check_resource'` (any value, and `TOKENLOCK_FAIL_OPEN` / `TOKENLOCK_CHECK_RESOURCE`)
+  and `'strict' => false` (also `TOKENLOCK_STRICT=0` and `array('strict' => false)` per call). Each is a configuration
+  error: locked pages answer **500** (JSON `bad_config` in API mode), the reason goes to the PHP error log, nothing from
+  the page is sent. An unreachable API always answers 503.
+- **Configuration is validated:** unknown options (typos such as `'tokenonly'`), wrong types (`'token_only' => 'maybe'`,
+  `'timeout_seconds' => 'fast'`), a missing or malformed `sk_` secret key, a non-http(s) `api_base`, and an unusable
+  `'early'` block (unknown keys such as `'protectt'`, wrong types) are configuration errors instead of being ignored.
+  An unusable `'early'` block refuses every path except the TOKENLOCK folder and a valid `exclude_paths` list (it can
+  no longer tell what is protected); the kill switch (`tokenlock/early.off` or `TOKENLOCK_EARLY=off`) still works.
+- **Answers are checked strictly, identity checks included:** larger than 64 KiB, not a JSON object, wrong types,
+  missing fields, a non-ISO `expires_at` (0.4.1 read `'tomorrow'` as a date), or contradictions (`valid => true` with a
+  `code`, `error` or `identity_valid => false`; `allowed` disagreeing with `access.allowed`; two echoes naming different
+  resources) all deny.
+- **Self-verify:** malformed policies are `policy_invalid`; dates must be ISO 8601; holdings answers need a boolean `held`.
+- `tokenlock_strict()` now only checks the configuration and returns true. A missing secret key throws `bad_config`
+  (0.4.1: `no_secret_key`).
+
+To upgrade: replace the files in `tokenlock/` (keep your `config.php`) and remove `'fail_open'`, `'check_resource'` and
+`'strict' => false` from it if present.
+
 ## Upgrading to 0.4.0 (breaking: explicit route authorization)
 
 0.4.0 fixes [security advisory 2026-11-18](https://proveitonchain.com/security/advisories/2026-11-18): no page path,
@@ -25,8 +71,32 @@ method or environment is authorized unless a policy explicitly permits it. Ident
 - Sites with registered keys: no change.
 
 To upgrade: replace the files in `tokenlock/` (keep your `config.php`), and add `'token_only' => true,` to your
-`config.php` if any holder should open every locked page. The hosted API keeps giving PHP 0.2.x/0.3.x the old answer
-(marked with a `warning`) so existing sites keep working until they upgrade; those versions remain affected.
+`config.php` if any holder should open every locked page. Since 18 Nov 2026, 9:03 PM PT the hosted API answers
+`policy_required` to PHP 0.2.x/0.3.x too, so a token-only site still on those versions denies locked pages until it upgrades.
+
+### Fail-closed guarantee
+
+No locked page, method or environment is authorized unless a policy explicitly permits it. Since 0.4.2 there is no
+setting that turns this off. Each of these denies:
+
+| Situation | Answer |
+| --- | --- |
+| A page path with no applicable route policy (token-only site, no `'token_only'`) | `403 policy_required` |
+| PHP/SDK 0.2.x/0.3.x clients sending a page path to the hosted API on a token-only site | `policy_required` (hosted API, every client version) |
+| `'token_only' => true` (or `TOKENLOCK_TOKEN_ONLY=1`) on a site that has registered keys | the page path, method and environment are still checked against the key |
+| TOKENLOCK API unreachable, timing out or answering 5xx | `503`, nothing from your page is sent |
+| Self-verify: policy can't be loaded, is expired or has a bad signature | `policy_unavailable` / `policy_expired` |
+| Self-verify: holdings source fails | `lookup_failed` |
+| Self-verify: a page path with no policy, or a token-mode policy | `policy_required` |
+| Self-verify: a malformed policy | `policy_invalid` |
+| An invalid configuration (removed or unknown options, wrong types, missing or malformed secret key) | `500 bad_config` (logged) |
+| A malformed, oversized (> 64 KiB), non-JSON or contradictory API answer | denied (503 for an unreadable answer) |
+
+Remaining limits (not configuration switches): on hosted registered-keys sites, a pass younger than
+2 × `recheck_holdings_s` keeps working during a holdings-source outage unless `require_fresh_holdings` is on (the route
+policy is still enforced). `'early' => array('admin_ips' => …)` is an explicit IP allowlist that skips the pass check.
+Identity answers on token-only sites are cached on disk up to 60 s unless `'cache' => false`. Copies you installed
+earlier keep their old behavior until you replace the files.
 
 ## What you upload
 
@@ -151,8 +221,7 @@ For sites with registered keys turned on (Business and Enterprise), `tokenlock_r
 
 ```php
 // config.php (optional)
-'environment' => 'production',   // checked against the key's environments
-'check_resource' => true,        // default; false = don't send path/method
+'environment' => 'production',   // checked against the key's environments (path + method are always sent)
 // or call it yourself:
 $info = tokenlock_verify_pass($pass, array('path' => '/api/partner/prices', 'method' => 'GET'));
 ```
@@ -165,7 +234,7 @@ $info = tokenlock_verify_pass($pass, array('path' => '/api/partner/prices', 'met
 - **Proxies:** TOKENLOCK must see the same path your router uses. If nginx, Apache or a CDN rewrites the path, make it pass the path through unchanged (or normalize it the same way before PHP). Don't decode `%2f` or resolve `..` after the check. Protect whole prefixes (`/admin/*`).
 - **Sign-in `next`:** only same-site paths. `//evil.com`, `/\evil.com`, `javascript:`, encoded or control-character variants fall back to `after_sign_in` (`tokenlock_safe_next()`, and the same check in the sign-in page's script).
 - **What our tests don't show:** the tests (unit, PHP built-in server, and the SDK's app-level integration matrix) run against a local copy of the API. They don't establish the security of the hosted service or isolation between tenants; an independent security review is on the roadmap.
-- **Strict mode** (`'strict' => null` = on by default): an answer counts only if complete and `allowed === true` for exactly this page's path, method and environment (echoed by the API). `'strict' => true` with `'fail_open' => true` or `'check_resource' => false` throws a `TokenlockException` (`bad_config`); setting either without `strict` turns strict off and writes a warning to the PHP error log. When the API can't answer, strict mode denies (503).
+- **Strict mode** (always on since 0.4.2): an answer counts only if complete, unambiguous and `allowed === true` for exactly this page's path, method and environment (echoed by the API). `'strict' => false`, `'fail_open'` and `'check_resource'` were removed and are configuration errors (`TokenlockException`, `bad_config`; locked pages answer 500). When the API can't answer, locked pages are denied (503).
 - **API mode:** `Accept: application/json`, or a path under `'api_paths' => array('/api')`, gets JSON for every denial: 401 (no/invalid/expired pass), 403 (signed in but not allowed), 400 (bad path), 503 (unavailable). Body `{ error, code, reason, correlation_id }`.
 - **Cache:** `'cache' => false` asks the API on every request. `tokenlock_clear_cache($pass)` removes every cached answer for that pass (all pages).
 
@@ -173,8 +242,8 @@ $info = tokenlock_verify_pass($pass, array('path' => '/api/partner/prices', 'met
 
 | Setup | How long a revoked key can still get in |
 | --- | --- |
-| 0.2.1 strict (default), registered keys | 0: never cached |
-| 0.2.1 `'strict' => false`, or 0.2.0 | up to 5 s (`cache_max_s`) |
+| 0.2.1 or later (strict), registered keys | 0: never cached |
+| 0.2.0 | up to 5 s (`cache_max_s`) |
 | Token-only sites | Holdings checked at sign-in; a pass stays good until it expires (cached up to 60 s) |
 
 ## Early block (0.3.0, preview)
@@ -208,9 +277,10 @@ Settings go in `config.php`:
 - **You can't lock yourself out.** The sign-in, session and sign-out pages are always reachable, and `exclude_paths`
   and `admin_ips` win over every other rule. To turn the early block off without editing code, upload an empty file named
   `tokenlock/early.off` (for example over FTP), or set `TOKENLOCK_EARLY=off`.
-- **Outages and mistakes** follow your existing policy. By default it fails closed with a 503. `fail_open` applies only when
-  strict mode is off. Missing keys or an unsafe strict setup also fail closed, but only on protected paths; the rest of
-  the site keeps working.
+- **Outages and mistakes** always fail closed: an outage answers 503 on protected paths. A broken configuration (missing
+  or malformed keys, removed or unknown options) answers 500 on protected paths; the rest of the site keeps working.
+  An unusable `'early'` block itself refuses every path except the TOKENLOCK folder and a valid `exclude_paths`
+  list until you fix it or use the kill switch (0.4.2).
 - **What gets blocked:** paths are matched in canonical form, as in `tokenlock_require()`, so `/MEMBERS`, `//members` and
   `/x/../members` are all protected. A malformed or ambiguous path (`%2f`, `;`, `.` or `..` segments, …) gets 400 before your app runs if any reading of it could reach a protected path (so `/members/..` and `/x/%2e%2e/members` are refused). Malformed paths that can't reach a protected path are left to your app, so the early block never breaks the rest of your site.
 
@@ -228,7 +298,7 @@ $holdings = tokenlock_sv_require_agreement(array(tokenlock_sv_tokenscan_provider
 $c = tokenlock_sv_create_challenge(array('site' => 'https://shop.example', 'assets' => array('CLUBTOKEN'), 'store' => $store));
 // … the wallet signs $c['message'] …
 $r = tokenlock_sv_verify_sign_in($_POST, array('store' => $store, 'holdings' => $holdings, 'pass_secret' => getenv('MY_PASS_SECRET')));
-$v = tokenlock_sv_verify_local_pass($_COOKIE['tl_pass'] ?? '', array('pass_secret' => getenv('MY_PASS_SECRET')));
+$v = tokenlock_sv_verify_local_pass($_COOKIE['tl_pass'] ?? '', array('pass_secret' => getenv('MY_PASS_SECRET'), 'identity_only' => true));
 ```
 
 To check registered keys offline, use `tokenlock_sv_signed_policy(array('site_id' => …, 'secret_key' => …, 'public_keys' => array($kid => $key), 'cache_dir' => …))`.

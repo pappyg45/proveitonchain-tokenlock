@@ -1,6 +1,6 @@
 # TOKENLOCK self-verify, spec v1
 
-Status: preview (SDK 0.4.0, self-verify since 0.3.0; PHP drop-in 0.4.0). Enterprise. Web version: https://proveitonchain.com/docs/self-verify
+Status: preview (SDK 0.4.3, self-verify since 0.3.0; PHP drop-in 0.4.3; 0.4.2 adds policy validation: malformed policies are `policy_invalid`; 0.4.3 adds the strict request schema: malformed `resource` or unknown options are `bad_resource`, identity-only is explicit). Enterprise. Web version: https://proveitonchain.com/docs/self-verify
 
 Self-verify lets **your server** run "Sign in with your Token" from start to finish. You issue the challenge and keep
 the nonce. You check the wallet signature locally, and you read holdings from a source you pick. For the sign-in itself,
@@ -116,12 +116,13 @@ to match how quickly a revoked key must stop working.
 The pass secret is yours: at least 32 characters, and never sent to us. A pass is a bearer token, so send it over HTTPS
 in an HttpOnly cookie or an Authorization header. Lifetime is the challenge's `pass_ttl_s` (default 900 s), capped by
 the key's `pass_ttl_s` and the agent/default TTLs in the policy, and by the key's `expires_at`.
-`verifyLocalPass(token, { passSecret, policy?, resource? })` gives one of these results:
+`verifyLocalPass(token, { passSecret, policy?, resource | identityOnly: true })` gives one of these results (0.4.3: exactly one of `resource` or `identityOnly: true`):
+- `valid:false, code:"bad_resource"`: unknown option, no `resource` and no `identityOnly`, or a malformed `resource` (unknown field, path without method, empty/whitespace/padded/`null`/non-string value). Never treated as identity-only. `bad_path` for a relative or non-canonical path.
 - `valid:false`: forged, expired, revoked, or the policy is unavailable. Answer 401.
 - `valid:false, allowed:false, code:"policy_required"`: a `resource` was given without a `policy`, or with a
   token-mode policy (no route rules). This is a configuration error (answer 500, or 403 in middleware, and fix the
   config): route, method and environment rules live in a registered-keys policy. `identity_valid` is `true` when the
-  pass itself is authentic and unexpired. Leave out `resource` for an identity-only check, which needs no policy.
+  pass itself is authentic and unexpired. For an identity-only check pass `identityOnly: true` (no `resource`), which needs no policy.
   (No policy: Node SDK 0.3.3+, PHP 0.4.0+. Token-mode policy: Node SDK 0.4.0+, PHP 0.4.0+. Earlier versions answered
   `allowed: true`; see advisory 2026-11-18.)
 - `valid:true, allowed:false`: authentic but outside this route, method or environment (`route_not_allowed`, …). Answer 403.

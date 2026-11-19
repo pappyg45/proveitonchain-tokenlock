@@ -110,22 +110,22 @@ try {
     assert.equal((await get(B, '/tokenlock/signin.php')).status, 200); assert.equal((await get(B, '/anything')).status, 302);
   });
   const C = await server(EARLY, { TOKENLOCK_SECRET_KEY: '' });
-  await step('misconfigured (no secret key): protected paths fail closed 503, other pages work', async () => {
-    const r = await get(C, '/members/area', ck(GOOD)); assert.equal(r.status, 503); assert.doesNotMatch(await r.text(), /APP BOOTED/);
+  await step('misconfigured (no secret key): protected paths fail closed (500 bad_config since 0.4.2), other pages work', async () => {
+    const r = await get(C, '/members/area', ck(GOOD)); assert.equal(r.status, 500); assert.doesNotMatch(await r.text(), /APP BOOTED/);
     assert.equal((await get(C, '/about')).status, 200);
   });
   const D = await server(EARLY, { TOKENLOCK_FAIL_OPEN: '1' });
-  await step('fail_open on (strict off): outage lets the pass holder in, marked fail-open; a "no" still blocks', async () => {
-    const r = await get(D, '/members/area', ck(DOWN)); assert.equal(r.status, 200); assert.equal(r.headers.get('x-tokenlock'), 'fail-open');
-    assert.equal((await get(D, '/members/area', ck('pp1.' + 'Y'.repeat(40) + '.' + 'Q'.repeat(43)))).status, 302);
+  await step('0.4.2: TOKENLOCK_FAIL_OPEN (removed) is a configuration error: outage or not, protected paths answer 500, app never boots', async () => {
+    for (const c of [DOWN, GOOD]) { const r = await get(D, '/members/area', ck(c)); assert.equal(r.status, 500); assert.equal(r.headers.get('x-tokenlock'), null); assert.doesNotMatch(await r.text(), /APP BOOTED/); }
+    assert.equal((await get(D, '/about')).status, 200);
   });
   const T = await server(EARLY, { TOKENLOCK_TOKEN_ONLY: '0' });
   await step('0.4.0: token-only site without token_only: valid pass is denied 403 policy_required, app never boots', async () => {
     const r = await get(T, '/members/area', ck(GOOD)); assert.equal(r.status, 403); assert.doesNotMatch(await r.text(), /APP BOOTED/);
   });
   const E = await server(EARLY, { TOKENLOCK_FAIL_OPEN: '1', TOKENLOCK_STRICT: '1' });
-  await step('strict on + fail_open = configuration error: fails closed (503), never open', async () => {
-    const r = await get(E, '/members/area', ck(DOWN)); assert.equal(r.status, 503); assert.doesNotMatch(await r.text(), /APP BOOTED/);
+  await step('strict on + fail_open = configuration error: fails closed (500), never open', async () => {
+    const r = await get(E, '/members/area', ck(DOWN)); assert.equal(r.status, 500); assert.doesNotMatch(await r.text(), /APP BOOTED/);
   });
   console.log('top-of-index include mode');
   const G = await server(EARLY, { EARLY_MODE: 'include' });

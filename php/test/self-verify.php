@@ -167,41 +167,42 @@ $broken = function () {
 same(tokenlock_sv_verify_sign_in($in(0), $cfg(array('policy' => $broken)), $SI['now'] + 1000)['code'], 'policy_expired', 'policy outage fails closed');
 
 echo "local pass\n";
-$v = tokenlock_sv_verify_local_pass($SI['node_pass']['token'], array('pass_secret' => $secret, 'now' => $SI['now'] + 1000));
+$v = tokenlock_sv_verify_local_pass($SI['node_pass']['token'], array('pass_secret' => $secret, 'identity_only' => true, 'now' => $SI['now'] + 1000));
 same(array($v['valid'], $v['address'], $v['key_id']), array(true, $A, 'key_a'), 'pass issued by Node verifies in PHP');
-same(tokenlock_sv_verify_local_pass($SI['node_pass']['token'], array('pass_secret' => str_repeat('z', 40), 'now' => $SI['now']))['code'], 'bad_pass', 'wrong secret');
-same(tokenlock_sv_verify_local_pass($SI['node_pass']['token'], array('pass_secret' => $secret, 'now' => $SI['now'] + 301000))['code'], 'expired', 'expired pass');
+same(tokenlock_sv_verify_local_pass($SI['node_pass']['token'], array('pass_secret' => str_repeat('z', 40), 'identity_only' => true, 'now' => $SI['now']))['code'], 'bad_pass', 'wrong secret');
+same(tokenlock_sv_verify_local_pass($SI['node_pass']['token'], array('pass_secret' => $secret, 'identity_only' => true, 'now' => $SI['now'] + 301000))['code'], 'expired', 'expired pass');
 $parts = explode('.', $SI['node_pass']['token']);
 $forged = 'tl3.' . tokenlock_sv_b64url(str_replace('GOTPROOF', 'GOTPROOX', tokenlock_sv_b64url_decode($parts[1]))) . '.' . $parts[2];
-same(tokenlock_sv_verify_local_pass($forged, array('pass_secret' => $secret, 'now' => $SI['now']))['code'], 'bad_pass', 'edited pass body');
+same(tokenlock_sv_verify_local_pass($forged, array('pass_secret' => $secret, 'identity_only' => true, 'now' => $SI['now']))['code'], 'bad_pass', 'edited pass body');
 $withPol = array('pass_secret' => $secret, 'now' => $SI['now'] + 1000, 'policy' => $polLocal);
 same(tokenlock_sv_verify_local_pass($SI['node_pass']['token'], $withPol + array('resource' => array('path' => '/api/data', 'method' => 'GET')))['code'], 'ok', 'policy + resource allowed');
 $x = tokenlock_sv_verify_local_pass($SI['node_pass']['token'], $withPol + array('resource' => array('path' => '/admin', 'method' => 'GET')));
 same(array($x['valid'], $x['allowed'], $x['code']), array(true, false, 'route_not_allowed'), 'out-of-scope route: valid but not allowed (403)');
 $revoked = tokenlock_sv_local_policy(array('keys' => array(array('id' => 'key_a', 'address' => $A, 'status' => 'revoked'))));
-same(tokenlock_sv_verify_local_pass($SI['node_pass']['token'], array('policy' => $revoked) + $withPol)['code'], 'key_revoked', 'revocation in the policy kills a live pass');
+same(tokenlock_sv_verify_local_pass($SI['node_pass']['token'], array('policy' => $revoked) + $withPol + array('identity_only' => true))['code'], 'key_revoked', 'revocation in the policy kills a live pass');
 // advisory 2026-11-18: a resource is allowed only when a route policy explicitly permits it (PHP 0.4.0)
 $noPol = array('pass_secret' => $secret, 'now' => $SI['now'] + 1000);
-foreach (array(array('path' => '/admin', 'method' => 'POST'), array('path' => '/api/data'), array('method' => 'GET'), array('environment' => 'production'), array()) as $res) {
+foreach (array(array('path' => '/admin', 'method' => 'POST'), array('path' => '/api/data', 'method' => 'GET'), array('path' => '/x', 'method' => 'DELETE', 'environment' => 'production')) as $res) {
     $x = tokenlock_sv_verify_local_pass($SI['node_pass']['token'], $noPol + array('resource' => $res));
     same(array($x['valid'], $x['allowed'], $x['code'], $x['identity_valid'], $x['address']), array(false, false, 'policy_required', true, $A), 'resource without a policy → policy_required: ' . json_encode($res));
 }
-same(tokenlock_sv_verify_local_pass($SI['node_pass']['token'], $noPol)['code'], 'ok', 'identity-only check without a policy still works');
-same(tokenlock_sv_verify_local_pass($SI['node_pass']['token'], $noPol + array('resource' => null))['code'], 'ok', 'resource => null is identity-only');
-same(tokenlock_sv_verify_local_pass($forged, $noPol + array('resource' => array('path' => '/a')))['code'], 'bad_pass', 'forged pass reported before the policy check');
+same(tokenlock_sv_verify_local_pass($SI['node_pass']['token'], $noPol + array('identity_only' => true))['code'], 'ok', 'identity-only check without a policy still works (explicit since 0.4.3)');
+same(tokenlock_sv_verify_local_pass($SI['node_pass']['token'], $noPol)['code'], 'bad_resource', '0.4.3: no resource and no identity_only is refused');
+same(tokenlock_sv_verify_local_pass($SI['node_pass']['token'], $noPol + array('resource' => null))['code'], 'bad_resource', '0.4.3: resource => null is refused (identity-only must be explicit)');
+same(tokenlock_sv_verify_local_pass($forged, $noPol + array('resource' => array('path' => '/a', 'method' => 'GET')))['code'], 'bad_pass', 'forged pass reported before the policy check');
 $tokenMode = tokenlock_sv_local_policy(array('mode' => 'token'));
 $x = tokenlock_sv_verify_local_pass($SI['node_pass']['token'], array('policy' => $tokenMode) + $withPol + array('resource' => array('path' => '/api/data', 'method' => 'GET')));
 same(array($x['valid'], $x['allowed'], $x['code'], $x['identity_valid']), array(false, false, 'policy_required', true), 'token-mode policy + resource → policy_required');
-same(tokenlock_sv_verify_local_pass($SI['node_pass']['token'], array('policy' => $tokenMode) + $withPol)['code'], 'ok', 'token-mode policy, identity-only → ok');
+same(tokenlock_sv_verify_local_pass($SI['node_pass']['token'], array('policy' => $tokenMode) + $withPol + array('identity_only' => true))['code'], 'ok', 'token-mode policy, identity-only → ok');
 $other = tokenlock_sv_local_policy(array('keys' => array(array('id' => 'key_b', 'address' => $A, 'status' => 'active'))));
-same(tokenlock_sv_verify_local_pass($SI['node_pass']['token'], array('policy' => $other) + $withPol)['code'], 'not_registered', 'pass bound to its key id');
+same(tokenlock_sv_verify_local_pass($SI['node_pass']['token'], array('policy' => $other) + $withPol + array('identity_only' => true))['code'], 'not_registered', 'pass bound to its key id');
 throws_code(function () {
     tokenlock_sv_issue_pass(array('sub' => 'x', 'e' => 1), 'short');
 }, 'bad_secret', 'short pass secret refused');
 $php = tokenlock_sv_issue_pass(array('sub' => $A, 'h' => array('GOTPROOF'), 'k' => null, 'n' => 'n', 's' => 'https://shop.example', 'i' => $SI['now'], 'e' => $SI['now'] + 60000), $secret);
 $sdk = getenv('TOKENLOCK_SDK_DIR') ?: (is_file(dirname(__DIR__, 2) . '/dist/self-verify.js') ? dirname(__DIR__, 2) : dirname(__DIR__, 2) . '/tokenlock-sdk');
 if (is_file($sdk . '/dist/self-verify.js')) {
-    $js = "import('" . $sdk . "/dist/self-verify.js').then(async S=>{const r=await S.verifyLocalPass(process.argv[1],{passSecret:process.argv[2],now:" . ($SI['now'] + 1000) . "});console.log(r.code)})";
+    $js = "import('" . $sdk . "/dist/self-verify.js').then(async S=>{const r=await S.verifyLocalPass(process.argv[1],{passSecret:process.argv[2],identityOnly:true,now:" . ($SI['now'] + 1000) . "});console.log(r.code)})";
     $o = trim((string) shell_exec('node -e ' . escapeshellarg($js) . ' ' . escapeshellarg($php) . ' ' . escapeshellarg($secret) . ' 2>&1'));
     same($o, 'ok', 'pass issued by PHP verifies in Node');
 } else {

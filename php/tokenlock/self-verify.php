@@ -45,7 +45,11 @@ function tokenlock_sv_iso($ms)
 
 function tokenlock_sv_ms($iso)
 {
-    $t = strtotime((string) $iso);
+    // 0.4.2: ISO 8601 timestamps only. strtotime() also reads 'tomorrow', 'never' or 'soon', which must not count.
+    if (!is_string($iso) || !preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$/', $iso)) {
+        return null;
+    }
+    $t = strtotime($iso);
     if ($t === false) {
         return null;
     }
@@ -240,8 +244,16 @@ function tokenlock_sv_proveitonchain_provider($o = array())
         }
         $out = array();
         foreach ($assets as $a) {
-            $x = $b['holdings'][$a] ?? array();
-            $out[$a] = array('held' => !empty($x['held']), 'how' => $x['how'] ?? null, 'quantity' => $x['quantity'] ?? null, 'exists' => $x['exists'] ?? null);
+            $x = $b['holdings'][$a] ?? null;
+            if ($x === null) {
+                $out[$a] = array('held' => false, 'how' => null);
+                continue;
+            }
+            // 0.4.2: an entry must be an object whose 'held' is a boolean; "false", 1 or "yes" are unreadable, not "held".
+            if (!is_array($x) || !array_key_exists('held', $x) || !is_bool($x['held'])) {
+                throw tokenlock_sv_lookup_failed('proveitonchain', 'unreadable answer');
+            }
+            $out[$a] = array('held' => $x['held'], 'how' => $x['how'] ?? null, 'quantity' => $x['quantity'] ?? null, 'exists' => $x['exists'] ?? null);
         }
         return $out;
     };
@@ -386,7 +398,11 @@ function tokenlock_sv_require_agreement($providers)
         foreach ($assets as $x) {
             $seen = array();
             foreach ($all as $h) {
-                $seen[!empty($h[$x]['held']) ? 1 : 0] = true;
+                $v = (is_array($h) && isset($h[$x]) && is_array($h[$x]) && array_key_exists('held', $h[$x])) ? $h[$x]['held'] : null;
+                if ($v !== null && !is_bool($v)) {
+                    throw new TokenlockSelfVerifyError('lookup_failed', 'A holdings source gave an unreadable answer for ' . $x . '.', 502);
+                }
+                $seen[$v === true ? 1 : 0] = true;
             }
             if (count($seen) !== 1) {
                 throw new TokenlockSelfVerifyError('lookup_disagreement', 'Holdings sources disagree on ' . $x . '.', 502);
@@ -434,6 +450,7 @@ function tokenlock_sv_verify_policy_bundle($bundle, $o)
         tokenlock_sv_fail('policy_wrong_site', 'Policy is for another site.', 502);
     }
     $now = $o['now'] ?? tokenlock_sv_now();
+    tokenlock_sv_validate_policy($p, $now, true);
     $exp = tokenlock_sv_ms($p['expires_at'] ?? '');
     if (!$exp || $exp <= $now) {
         tokenlock_sv_fail('policy_expired', 'Policy bundle expired. Fetch a fresh one.', 503);
@@ -501,13 +518,146 @@ function tokenlock_sv_signed_policy($o)
     };
 }
 
-/** Your own policy (array or callable): same shape, no signature (you are the source). */
+function tokenlock_sv_is_list($a)
+{
+    if (!is_array($a)) {
+        return false;
+    }
+    $i = 0;
+    foreach ($a as $k => $unused) {
+        if ($k !== $i++) {
+            return false;
+        }
+    }
+    return true;
+}
+
+function tokenlock_sv_str_list($a)
+{
+    if (!tokenlock_sv_is_list($a)) {
+        return false;
+    }
+    foreach ($a as $x) {
+        if (!is_string($x)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/**
+ * 0.4.2: shape check for a policy (signed or local). Anything malformed throws policy_invalid and access is denied:
+ * a typo in 'mode', a string where a list belongs, an unparseable date (an unparseable key expiry would never
+ * expire), a non-integer seq (breaks rollback protection) or an unknown key status.
+ */
+function tokenlock_sv_validate_policy($p, $now = null, $signed = false)
+{
+    $now = $now ?? tokenlock_sv_now();
+    $bad = function ($why) {
+        tokenlock_sv_fail('policy_invalid', 'Policy is malformed: ' . $why . '.', 502);
+    };
+    if (!is_array($p) || tokenlock_sv_is_list($p)) {
+        $bad('not an object');
+    }
+    if (($p['v'] ?? null) !== 1 || ($p['typ'] ?? null) !== 'tokenlock.policy') {
+        $bad('unknown version');
+    }
+    if (!isset($p['site_id']) || !is_string($p['site_id']) || $p['site_id'] === '') {
+        $bad('site_id');
+    }
+    if (!isset($p['seq']) || !is_int($p['seq']) || $p['seq'] < 0) {
+        $bad('seq must be a whole number >= 0');
+    }
+    $iss = tokenlock_sv_ms($p['issued_at'] ?? null);
+    $exp = tokenlock_sv_ms($p['expires_at'] ?? null);
+    if ($iss === null) {
+        $bad('issued_at');
+    }
+    if ($exp === null) {
+        $bad('expires_at');
+    }
+    if ($exp < $iss) {
+        $bad('expires_at is before issued_at');
+    }
+    if ($signed && $iss > $now + 300000) {
+        $bad('issued_at is in the future');
+    }
+    if (!in_array($p['mode'] ?? null, array('token', 'registered_keys'), true)) {
+        $bad('mode must be "token" or "registered_keys"');
+    }
+    if (!tokenlock_sv_is_list($p['orgs'] ?? null)) {
+        $bad('orgs');
+    }
+    foreach ($p['orgs'] as $o) {
+        if (!is_array($o) || !isset($o['id'], $o['status']) || !is_string($o['id']) || !is_string($o['status'])) {
+            $bad('orgs');
+        }
+    }
+    if (!tokenlock_sv_str_list($p['revoked_assets'] ?? null)) {
+        $bad('revoked_assets');
+    }
+    foreach (array('assets', 'origins') as $k) {
+        if (array_key_exists($k, $p) && $p[$k] !== null && !tokenlock_sv_str_list($p[$k])) {
+            $bad($k);
+        }
+    }
+    if (array_key_exists('any_name', $p) && $p['any_name'] !== null && !is_bool($p['any_name'])) {
+        $bad('any_name');
+    }
+    if (array_key_exists('settings', $p) && $p['settings'] !== null && (!is_array($p['settings']) || ($p['settings'] !== array() && tokenlock_sv_is_list($p['settings'])))) {
+        $bad('settings');
+    }
+    if (!tokenlock_sv_is_list($p['keys'] ?? null)) {
+        $bad('keys must be a list');
+    }
+    foreach ($p['keys'] as $k) {
+        if (!is_array($k) || tokenlock_sv_is_list($k)) {
+            $bad('key');
+        }
+        if (!isset($k['id'], $k['address']) || !is_string($k['id']) || $k['id'] === '' || !is_string($k['address']) || $k['address'] === '') {
+            $bad('key id/address');
+        }
+        if (!in_array($k['status'] ?? null, array('active', 'revoked', 'pending_approval'), true)) {
+            $bad('key status');
+        }
+        if (isset($k['org_id']) && !is_string($k['org_id'])) {
+            $bad('key org_id');
+        }
+        if (isset($k['assets']) && !tokenlock_sv_str_list($k['assets'])) {
+            $bad('key assets');
+        }
+        if (isset($k['expires_at']) && tokenlock_sv_ms($k['expires_at']) === null) {
+            $bad('key expires_at');
+        }
+        if (isset($k['pass_ttl_s']) && !((is_int($k['pass_ttl_s']) || is_float($k['pass_ttl_s'])) && $k['pass_ttl_s'] > 0)) {
+            $bad('key pass_ttl_s');
+        }
+        if (isset($k['permissions'])) {
+            $pm = $k['permissions'];
+            if (!is_array($pm) || ($pm !== array() && tokenlock_sv_is_list($pm))) {
+                $bad('key permissions');
+            }
+            foreach (array('routes', 'methods', 'environments') as $f) {
+                if (isset($pm[$f]) && !tokenlock_sv_str_list($pm[$f])) {
+                    $bad("key permissions.$f must be a list");
+                }
+            }
+        }
+    }
+}
+
+/** Your own policy (array or callable): same shape, no signature (you are the source). Malformed → policy_invalid. */
 function tokenlock_sv_local_policy($get)
 {
     return function () use ($get) {
         $p = is_callable($get) ? call_user_func($get) : $get;
-        return array_merge(array('v' => 1, 'typ' => 'tokenlock.policy', 'site_id' => 'local', 'seq' => 0, 'issued_at' => tokenlock_sv_iso(0),
-            'expires_at' => '9999-12-31T00:00:00.000Z', 'orgs' => array(), 'revoked_assets' => array(), 'keys' => array(), 'mode' => 'registered_keys'), (array) $p);
+        if (!is_array($p)) {
+            tokenlock_sv_fail('policy_invalid', 'Policy is malformed: not an object.', 502);
+        }
+        $out = array_merge(array('v' => 1, 'typ' => 'tokenlock.policy', 'site_id' => 'local', 'seq' => 0, 'issued_at' => tokenlock_sv_iso(0),
+            'expires_at' => '9999-12-31T00:00:00.000Z', 'orgs' => array(), 'revoked_assets' => array(), 'keys' => array(), 'mode' => 'registered_keys'), $p);
+        tokenlock_sv_validate_policy($out);
+        return $out;
     };
 }
 
@@ -534,6 +684,20 @@ function tokenlock_sv_route_matches($pattern, $path)
 function tokenlock_sv_evaluate($policy, $address, $held, $resource = null, $now = null)
 {
     $now = $now ?? tokenlock_sv_now();
+    // 0.4.3: a resource given here goes through the shared schema; a malformed one is refused instead of skipping the
+    // route rules. $resource null = identity only (low level).
+    if ($resource !== null) {
+        list($clean, $rerr) = tokenlock_validate_resource($resource);
+        if ($rerr !== null || $clean === null) {
+            return array('allowed' => false, 'reason' => $rerr === 'bad_path' ? 'bad_path' : 'bad_resource');
+        }
+        $resource = $clean;
+    }
+    // 0.4.2: defensive (callers may evaluate a policy that never went through validation): malformed → deny.
+    if (!is_array($policy) || !in_array($policy['mode'] ?? null, array('token', 'registered_keys'), true) || !tokenlock_sv_is_list($policy['keys'] ?? null)
+        || (isset($policy['revoked_assets']) && !tokenlock_sv_str_list($policy['revoked_assets']))) {
+        return array('allowed' => false, 'reason' => 'policy_invalid');
+    }
     $revoked = $policy['revoked_assets'] ?? array();
     if (($policy['mode'] ?? '') !== 'registered_keys') {
         if (is_array($held) && !array_diff($held, $revoked)) {
@@ -564,8 +728,11 @@ function tokenlock_sv_evaluate($policy, $address, $held, $resource = null, $now 
     if ($st !== 'active') {
         return $no('not_registered');
     }
-    if (!empty($key['expires_at']) && tokenlock_sv_ms($key['expires_at']) <= $now) {
-        return $no('key_expired');
+    if (isset($key['expires_at']) && $key['expires_at'] !== '') {
+        $ke = tokenlock_sv_ms($key['expires_at']);
+        if ($ke === null || $ke <= $now) {
+            return $no('key_expired');
+        }
     }
     if (!empty($key['org_id'])) {
         $org = null;
@@ -594,6 +761,9 @@ function tokenlock_sv_evaluate($policy, $address, $held, $resource = null, $now 
         $routes = $perm['routes'] ?? array('*');
         $methods = $perm['methods'] ?? array('*');
         $envs = $perm['environments'] ?? array();
+        if (!tokenlock_sv_str_list($routes) || !tokenlock_sv_str_list($methods) || !tokenlock_sv_str_list($envs)) {
+            return $no('policy_invalid');
+        }
         if (!empty($resource['environment']) && $envs && !in_array('*', $envs, true) && !in_array($resource['environment'], $envs, true)) {
             return $no('environment_not_allowed');
         }
@@ -631,7 +801,8 @@ function tokenlock_sv_reasons()
         'name_required' => 'Give the name you hold.', 'not_registered' => 'This wallet is not a registered key for this site.', 'key_revoked' => 'This key was revoked.', 'key_expired' => 'This key has expired.',
         'pending_approval' => 'Waiting for the site admin to approve this wallet.', 'org_not_approved' => 'The organization for this key is not approved.',
         'org_required' => 'This site requires keys to belong to an organization.', 'entitlement_revoked' => 'This token no longer unlocks this site.',
-        'policy_expired' => 'Access policy is out of date. Try again in a minute.', 'policy_unavailable' => 'Access policy is unavailable. Try again in a minute.',
+        'policy_expired' => 'Access policy is out of date. Try again in a minute.', 'policy_invalid' => 'Access policy is malformed, so access is denied. Fix the policy.', 'policy_unavailable' => 'Access policy is unavailable. Try again in a minute.',
+        'bad_resource' => "Malformed authorization request: pass a valid array('path' => ..., 'method' => ...) or 'identity_only' => true.",
     );
 }
 
@@ -640,7 +811,7 @@ function tokenlock_sv_policy_get($src)
     try {
         return array(call_user_func($src), null);
     } catch (Throwable $e) {
-        return array(null, ($e instanceof TokenlockSelfVerifyError && $e->tlcode === 'policy_expired') ? 'policy_expired' : 'policy_unavailable');
+        return array(null, ($e instanceof TokenlockSelfVerifyError && in_array($e->tlcode, array('policy_expired', 'policy_invalid'), true)) ? $e->tlcode : 'policy_unavailable');
     }
 }
 
@@ -700,7 +871,7 @@ function tokenlock_sv_verify_sign_in($input, $cfg, $now = null)
         return $out(($e instanceof TokenlockSelfVerifyError && $e->tlcode === 'lookup_disagreement') ? 'lookup_disagreement' : 'lookup_failed', array('address' => $address));
     }
     $held = array_values(array_filter($want, function ($a) use ($h) {
-        return !empty($h[$a]['held']);
+        return is_array($h) && isset($h[$a]) && is_array($h[$a]) && ($h[$a]['held'] ?? null) === true;
     }));
     if (!$held) {
         return $out('not_holder', array('address' => $address, 'assets_held' => array()));
@@ -747,6 +918,27 @@ function tokenlock_sv_verify_local_pass($token, $o)
     $no = function ($code, $extra = array()) use ($R, $scope) {
         return array_merge(array('valid' => in_array($code, $scope, true), 'allowed' => false, 'code' => $code, 'reason' => $R[$code] ?? $code), $extra);
     };
+    // 0.4.3: the authorization request is explicit: 'identity_only' => true (no resource), or a resource that passes the
+    // shared schema. No resource, an unknown option or a malformed resource is refused (never an identity-only check).
+    if (!is_array($o)) {
+        return $no('bad_resource');
+    }
+    foreach (array_keys($o) as $k) {
+        if (!in_array($k, array('pass_secret', 'policy', 'resource', 'identity_only', 'now'), true)) {
+            return $no('bad_resource');
+        }
+    }
+    if (array_key_exists('identity_only', $o)) {
+        if ($o['identity_only'] !== true || array_key_exists('resource', $o)) {
+            return $no('bad_resource');
+        }
+        $req = null;
+    } else {
+        list($req, $rerr) = tokenlock_validate_resource(array_key_exists('resource', $o) ? $o['resource'] : null);
+        if ($rerr !== null || $req === null) {
+            return $no($rerr === 'bad_path' ? 'bad_path' : 'bad_resource');
+        }
+    }
     if (!preg_match('/^tl3\.([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]{43})$/', (string) $token, $m)) {
         return $no('bad_pass');
     }
@@ -764,7 +956,7 @@ function tokenlock_sv_verify_local_pass($token, $o)
         return $no('expired');
     }
     $base = array('address' => $p['sub'] ?? null, 'assets_held' => $p['h'] ?? array(), 'expires_at' => tokenlock_sv_iso($p['e']), 'key_id' => $p['k'] ?? null);
-    $hasResource = isset($o['resource']) && $o['resource'] !== null;
+    $hasResource = $req !== null;
     $policyRequired = function ($identityValid) use ($base) {
         return array_merge(array('valid' => false, 'allowed' => false, 'identity_valid' => $identityValid, 'code' => 'policy_required',
             'reason' => 'No route policy applies: a resource (path, method or environment) was given but there is no policy, or the policy has no route rules (token mode), so it cannot be explicitly permitted. Use a registered-keys policy that grants the route, or drop the resource for an identity-only check.'), $base);
@@ -782,7 +974,7 @@ function tokenlock_sv_verify_local_pass($token, $o)
             $idv = tokenlock_sv_evaluate($pol, $p['sub'] ?? '', $p['h'] ?? array(), null, $now);
             return $policyRequired(!empty($idv['allowed']));
         }
-        $ev = tokenlock_sv_evaluate($pol, $p['sub'] ?? '', $p['h'] ?? array(), $o['resource'] ?? null, $now);
+        $ev = tokenlock_sv_evaluate($pol, $p['sub'] ?? '', $p['h'] ?? array(), $req, $now);
         if (!$ev['allowed']) {
             return $no($ev['reason'], $base);
         }

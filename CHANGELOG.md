@@ -1,5 +1,82 @@
 # Changelog
 
+## 0.4.3 (security correction, breaking: explicit identity-only)
+
+No new features. Corrects a fail-open found by the 0.4.2 production regression run: in 0.4.2 an unknown, mistyped,
+empty, `null` or non-string resource field (for example `{ pth: '/admin' }` or `{ path: '' }`) was dropped and the call
+became an identity-only check, which can answer `valid: true` for a protected resource. 0.4.2 is deprecated on npm.
+Regression tests were written first and failed against 0.4.2 (`test/correction-043.test.mjs`: 6 of 8 failed on 0.4.2;
+all pass on 0.4.3). Advisory: https://proveitonchain.com/security/advisories/2026-11-18#correction-043
+
+- **One strict schema** (`validateResource`) for every authorization entry point: `verifyPass`, `getPass`, `authorize`,
+  `TokenlockClient.verifyPass`, the Next.js helpers, the Express/Next middleware, the Cloudflare worker and
+  `verifyLocalPass`/`evaluate`. Allowed fields: `path`, `method`, `environment`, `identityOnly`.
+- **Refused (`TokenlockError` `code: 'bad_resource'`, before any network call):** unknown fields or options, a request
+  that is not a plain object, a path without a method or a method without a path, values that are not strings, empty,
+  whitespace-only or padded, `null`/`undefined` values, a method that is not 1–10 letters, an environment that is not
+  1–30 of `A-Z a-z 0-9 _ . -`. Values are never truncated. A relative path or one that fails the canonical path rules
+  answers `{ valid: false, code: 'bad_path' }`. A query string or fragment is dropped (path rules v1.1, unchanged).
+- **Breaking: identity-only is explicit.** `verifyPass(pass, { secretKey, identityOnly: true })`,
+  `getPass(req, { identityOnly: true })`, `client.verifyPass(pass, { identityOnly: true })`,
+  `verifyLocalPass(pass, { passSecret, identityOnly: true })`. Calling these with no resource now throws
+  `bad_resource` (self-verify answers `bad_resource`) instead of silently doing an identity check. `identityOnly` must
+  be exactly `true` and alone. `authorize()` always needs `{ path, method }`. On the wire an identity check sends
+  `identity_only: true`.
+- **Middleware / worker:** the resource is built from the request; an unset environment is omitted (never sent as
+  `null` or `''`); an invalid `environment` option or `TOKENLOCK_ENVIRONMENT` is `bad_config`. A request whose method
+  is not a plain HTTP method name is denied.
+- **Interface audit fixes (path patterns):** an Express/Next `protect`, `publicPaths` or `apiPaths` string without a
+  leading `/` (e.g. `'api/*'`) matched nothing and silently left those paths unprotected; it is now `bad_config` at
+  startup. In the Cloudflare worker, a `TOKENLOCK_PROTECT` / `TOKENLOCK_API_PATHS` entry that is not a plain path prefix
+  (`/api/*`, `/api/:path*`, `api`) is `bad_config` and every request is refused (500) until fixed.
+- **Docs:** 0.4.2 said "unknown options are refused"; that held for the middleware only. Since 0.4.3 it holds for every
+  authorization call.
+
+## 0.4.2 (security hardening, breaking: removed options)
+
+No new features. Removes every configuration that could weaken fail-closed behavior and adds denial checks for
+invalid configuration, stale or malformed policies, malformed backend answers and conflicting decisions. Regression
+tests were written first and failed against 0.4.1 (`test/hardening-042.test.mjs`: 26 of 30 failed on 0.4.1, 30 of 30
+pass on 0.4.2).
+
+- **Breaking, removed:** `failOpen` and `checkResource` (any value) and `strict: false` (loose mode) are configuration
+  errors (`TokenlockError`, `code: 'bad_config'`) on `TokenlockClient`, `verifyPass`, `getPass`, `authorize` and the
+  Express/Next middleware. The `x-tokenlock: fail-open` header is gone. The path, method and environment are always sent.
+- **Configuration validation:** the middleware refuses unknown options (typos), wrong types (`tokenOnly: 'false'` was
+  truthy in 0.4.1), a missing or malformed secret key, an empty `protect` and a missing `signInPage`. The client checks
+  `timeoutMs`, `cache`, `apiBase`, `fetch` and the secret key format.
+- **Answers:** capped at 64 KiB; a 2xx answer that is not a JSON object is `bad_answer` (502 → protected requests get
+  503). Identity checks are strict too. New denials: `valid: true` with a `code`, `error` or `identity_valid` other than
+  true; `allowed` present and not `true`; `access.reason` other than `ok`; non-ISO `expires_at`; `assets_held` not a list;
+  any resource echo that is not an object or names another resource (both echoes are checked); an identity answer that
+  names a resource. Registered-key answers are never cached.
+- **Self-verify:** `validatePolicy` (signed bundles and `localPolicy`): integer `seq` ≥ 0, ISO `issued_at`/`expires_at`,
+  `issued_at` at most 5 min in the future, `mode` `token`|`registered_keys`, list-typed `orgs`/`revoked_assets`/`keys`
+  and permissions, known key status, parseable key expiry. Malformed → `policy_invalid`. `evaluate` denies malformed
+  input; an unparseable key expiry is `key_expired`. The hosted holdings provider requires a boolean `held`;
+  `requireAgreement` refuses non-boolean answers.
+- **Cloudflare worker example:** `TOKENLOCK_FAIL_OPEN`, `TOKENLOCK_CHECK_RESOURCE`, `TOKENLOCK_STRICT` (any value), a
+  missing or non-`sk_` secret, invalid `TOKENLOCK_TOKEN_ONLY`/`TOKENLOCK_TIMEOUT_MS`/`TOKENLOCK_API` → `500 bad_config`
+  on protected paths and the session endpoint. Fail-closed fetch timeout (`TOKENLOCK_TIMEOUT_MS`, default 8000) → `503`.
+  Same answer checks as the SDK. Client header `cf-worker/0.4.2`.
+- **Hosted API (deployed with this release):** a storage error reading a site's settings is `503` and is not cached
+  (0.4.1 cached it as "no site", which with the Redis access state also missing produced a token-only answer for a
+  registered-keys site); access decisions use the site document just loaded for the secret key; malformed access state
+  or key records deny; the `TOKENLOCK_LEGACY_RESOURCE_COMPAT` emergency switch was removed.
+- PHP drop-in 0.4.2 ships the same changes.
+
+## 0.4.1 (documentation only)
+
+No code changes from 0.4.0: same authorization logic, same tests. Only the version string (`VERSION`, client header
+`js/0.4.1`) and the documents changed. 0.4.1 is the stable security baseline.
+
+- README: the hosted API answers `policy_required` to every client version, SDK and PHP 0.2.x/0.3.x included (since
+  18 Nov 2026, 9:03 PM PT). The 0.4.0 package still said legacy clients got the old answer.
+- README: new "Fail-closed guarantee" section listing what denies by default (no policy, legacy clients, `tokenOnly`
+  on a registered-keys site, API unreachable / 5xx / timeout, policy or holdings lookup failures) and the explicit
+  opt-outs that weaken it (`failOpen: true`, `checkResource: false`, the hosted holdings re-check grace window).
+- PHP drop-in 0.4.1 ships the same way: documentation and version string only.
+
 ## 0.4.0 (security, breaking: explicit route authorization)
 
 Fixes [security advisory 2026-11-18](https://proveitonchain.com/security/advisories/2026-11-18). No route, method or

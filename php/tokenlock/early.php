@@ -22,8 +22,11 @@
  * Lockout safety: the TOKENLOCK folder (sign-in, session, sign-out) is always excluded; exclude_paths and admin_ips
  * win over everything else; and you can switch the early block off without code by creating tokenlock/early.off
  * (e.g. over FTP) or setting TOKENLOCK_EARLY=off.
- * Outages follow your existing policy: fail closed (503) by default; fail_open only when strict mode is off.
- * A broken configuration (missing keys, unsafe strict settings) also fails closed on protected paths only.
+ * Outages always fail closed (503) on protected paths; 0.4.2 removed fail_open.
+ * A broken configuration (missing or malformed keys, removed or unknown options) fails closed (500/503) on protected
+ * paths. An unusable 'early' block itself (a typo such as 'protectt', or a wrong type) fails closed on every path
+ * except the TOKENLOCK folder and a valid 'exclude_paths' list, because it can no longer tell what is protected;
+ * use the kill switch (tokenlock/early.off or TOKENLOCK_EARLY=off) to get out while you fix it.
  */
 if (defined('TOKENLOCK_EARLY_RAN')) {
     return;
@@ -177,7 +180,7 @@ function tokenlock_early_deny($status, $code, $reason, $api)
 }
 
 /**
- * Decide for this request. Returns 'skip' | 'admin' | 'public' | 'allow' | 'fail_open' (or exits with 400/403/503 or a redirect).
+ * Decide for this request. Returns 'skip' | 'admin' | 'public' | 'allow' (or exits with 400/403/500/503 or a redirect).
  * @param array|null $early overrides config('early')
  */
 function tokenlock_early($early = null)
@@ -186,8 +189,27 @@ function tokenlock_early($early = null)
         return 'skip';
     }
     $cfg = tokenlock_config();
+    $given = $early !== null ? $early : (isset($cfg['early']) ? $cfg['early'] : array());
+    $why = tokenlock_early_problem($given);
+    if ($why !== null) {
+        // 0.4.2: the early settings are unusable, so what is protected is unknown: deny everything except our own
+        // folder and a valid exclude_paths list (lockout safety). Kill switch: tokenlock/early.off or TOKENLOCK_EARLY=off.
+        error_log('[TOKENLOCK early] configuration error, requests refused: ' . $why);
+        $path0 = tokenlock_canonical_path(tokenlock_request_path());
+        $signin0 = parse_url(is_string($cfg['sign_in_page'] ?? null) ? $cfg['sign_in_page'] : '/tokenlock/signin.php', PHP_URL_PATH);
+        $safe = array(rtrim(str_replace('\\', '/', dirname($signin0 ? $signin0 : '/tokenlock/signin.php')), '/') . '/*');
+        if (is_array($given) && isset($given['exclude_paths']) && tokenlock_str_list_ok($given['exclude_paths'])) {
+            $safe = array_merge($safe, (array) $given['exclude_paths']);
+        }
+        foreach ($safe as $p) {
+            if ($path0 !== null && tokenlock_path_matches($p, $path0)) {
+                return 'skip';
+            }
+        }
+        tokenlock_early_deny(503, 'bad_config', 'This site is temporarily unavailable (configuration error).', $path0 !== null && tokenlock_is_api_request($path0));
+    }
     $e = array_merge(array('protect' => array(), 'public' => array(), 'exclude_paths' => array(), 'admin_ips' => array(), 'deny_ips' => array(), 'trusted_proxies' => array()),
-        is_array($early) ? $early : (isset($cfg['early']) && is_array($cfg['early']) ? $cfg['early'] : array()));
+        is_array($given) ? $given : array());
     if (!$e['protect'] && !$e['deny_ips']) {
         return 'skip';
     }
@@ -243,24 +265,14 @@ function tokenlock_early($early = null)
         return 'skip';
     }
     try {
-        $info = tokenlock_require(); // pass check; honors strict / fail_open; redirects or exits when denied
-        return !empty($info['fail_open']) ? 'fail_open' : 'allow';
+        $info = tokenlock_require(); // pass check (always strict); redirects or exits when denied
+        if (is_array($info) && isset($info['valid']) && $info['valid'] === true) {
+            return 'allow';
+        }
+        throw new TokenlockException('tokenlock_require() returned without a valid pass.', 0, 'bad_answer');
     } catch (Throwable $ex) {
-        // Misconfiguration (missing keys, unsafe strict combo, bad secret key): fail closed unless fail_open is
-        // explicitly on AND strict mode is off.
+        // Misconfiguration or anything unexpected: always fail closed (0.4.2 removed fail_open).
         error_log('[TOKENLOCK early] ' . get_class($ex) . ': ' . $ex->getMessage());
-        $open = false;
-        try {
-            $open = tokenlock_bool($cfg['fail_open']) && !tokenlock_strict();
-        } catch (Throwable $ignored) {
-            $open = false;
-        }
-        if ($open) {
-            if (!headers_sent()) {
-                header('X-Tokenlock: fail-open');
-            }
-            return 'fail_open';
-        }
         if (!headers_sent()) {
             header('Retry-After: 30');
         }

@@ -4,7 +4,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { schnorr } from '@noble/curves/secp256k1.js';
 import { verifyMessageSignature, decodeAddress, taggedHash } from './btcsig.js';
-import { canonicalPath } from '../core.js';
+import { canonicalPath, validateResource } from '../core.js';
 export { verifyMessageSignature, decodeAddress, _addr } from './btcsig.js';
 
 export const SPEC_VERSION = 1;
@@ -105,8 +105,15 @@ export function proveitonchainProvider(o: { api?: string; fetch?: FetchLike; tim
   const api = (o.api || 'https://proveitonchain.com').replace(/\/$/, ''); const f = o.fetch || (globalThis.fetch as any);
   return { name: 'proveitonchain', async holdings(address, assets) {
     let r; try { r = await getJson(f, `${api}/api/v1/tokenlock/holdings?address=${encodeURIComponent(address)}&assets=${encodeURIComponent(assets.join(','))}`, o.timeoutMs ?? 8000); } catch (e: any) { throw lookupFailed('proveitonchain', e?.name === 'AbortError' ? 'timeout' : 'network'); }
-    if (!r.ok || !r.body?.holdings) throw lookupFailed('proveitonchain', 'status ' + r.status);
-    const out: Record<string, Holding> = {}; for (const a of assets) out[a] = { held: !!r.body.holdings[a]?.held, how: r.body.holdings[a]?.how ?? null, quantity: r.body.holdings[a]?.quantity, exists: r.body.holdings[a]?.exists };
+    if (!r.ok || !r.body?.holdings || typeof r.body.holdings !== 'object' || Array.isArray(r.body.holdings)) throw lookupFailed('proveitonchain', 'status ' + r.status);
+    const out: Record<string, Holding> = {};
+    for (const a of assets) {
+      const x = r.body.holdings[a];
+      if (x === undefined || x === null) { out[a] = { held: false, how: null }; continue; }
+      // 0.4.2: an entry must be an object whose `held` is a boolean; "false", 1 or "yes" are unreadable, not "held".
+      if (typeof x !== 'object' || Array.isArray(x) || typeof x.held !== 'boolean') throw lookupFailed('proveitonchain', 'unreadable answer');
+      out[a] = { held: x.held, how: x.how ?? null, quantity: x.quantity, exists: x.exists };
+    }
     return out;
   } };
 }
@@ -174,7 +181,11 @@ export function firstAvailable(providers: HoldingsProvider[]): HoldingsProvider 
 export function requireAgreement(providers: HoldingsProvider[]): HoldingsProvider {
   return { name: 'agree(' + providers.map((p) => p.name).join(',') + ')', async holdings(a, s) {
     const all = await Promise.all(providers.map((p) => p.holdings(a, s)));
-    for (const x of s) if (new Set(all.map((h) => !!h[x]?.held)).size !== 1) throw new SelfVerifyError('lookup_disagreement', `Holdings sources disagree on ${x}.`, 502);
+    for (const x of s) {
+      const vals = all.map((h) => h?.[x]?.held);
+      if (vals.some((v) => v !== undefined && typeof v !== 'boolean')) throw new SelfVerifyError('lookup_failed', `A holdings source gave an unreadable answer for ${x}.`, 502);
+      if (new Set(vals.map((v) => v === true)).size !== 1) throw new SelfVerifyError('lookup_disagreement', `Holdings sources disagree on ${x}.`, 502);
+    }
     return all[0];
   } };
 }
@@ -196,13 +207,59 @@ export function verifyPolicyBundle(bundle: PolicyBundle, o: { publicKeys: Record
   const ok = !!sig && sig.length === 64 && candidates.some((pk) => { const p = hexb(pk); try { return !!p && p.length === 32 && schnorr.verify(sig, msg, p); } catch { return false; } });
   if (!ok) fail('policy_bad_signature', 'Policy bundle signature does not verify.', 502);
   let p: Policy; try { p = JSON.parse(new TextDecoder().decode(bytes)); } catch { return fail('policy_invalid', 'Policy payload is not JSON.', 502); }
-  if (p.typ !== 'tokenlock.policy' || p.v !== 1) fail('policy_invalid', 'Unknown policy version.', 502);
+  if (!p || typeof p !== 'object' || Array.isArray(p) || p.typ !== 'tokenlock.policy' || p.v !== 1) fail('policy_invalid', 'Unknown policy version.', 502);
   if (p.site_id !== o.siteId) fail('policy_wrong_site', 'Policy is for another site.', 502);
   const now = o.now ?? Date.now();
+  validatePolicy(p, now, true);
   if (!(Date.parse(p.expires_at) > now)) fail('policy_expired', 'Policy bundle expired. Fetch a fresh one.', 503);
   if (o.maxAgeSeconds && now - Date.parse(p.issued_at) > o.maxAgeSeconds * 1000) fail('policy_stale', 'Policy bundle is older than allowed.', 503);
   if (o.minSeq != null && p.seq < o.minSeq) fail('policy_rollback', 'Policy bundle is older than one already seen.', 502);
   return p;
+}
+
+const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$/;
+const isoMs = (v: unknown): number | null => (typeof v === 'string' && ISO_TIME.test(v) && Number.isFinite(Date.parse(v)) ? Date.parse(v) : null);
+const strList = (v: unknown) => Array.isArray(v) && v.every((x) => typeof x === 'string');
+export const KEY_STATUSES = ['active', 'revoked', 'pending_approval'];
+/** Most clock skew accepted on a signed bundle's issued_at (a bundle "issued" further in the future is invalid). */
+export const POLICY_FUTURE_SKEW_MS = 5 * 60e3;
+/**
+ * 0.4.2: shape check for a policy (signed or local). Anything malformed is policy_invalid and access is denied: a typo in
+ * `mode`, a string where a list belongs ('GET,POST' would match by substring), an unparseable date (an unparseable key
+ * expiry would never expire), a non-integer seq (breaks rollback protection) or an unknown key status.
+ */
+export function validatePolicy(p: any, now = Date.now(), signed = false): void {
+  const bad = (why: string): never => fail('policy_invalid', 'Policy is malformed: ' + why + '.', 502);
+  if (!p || typeof p !== 'object' || Array.isArray(p)) bad('not an object');
+  if (p.v !== 1 || p.typ !== 'tokenlock.policy') bad('unknown version');
+  if (typeof p.site_id !== 'string' || !p.site_id) bad('site_id');
+  if (!Number.isSafeInteger(p.seq) || p.seq < 0) bad('seq must be a whole number >= 0');
+  const iss = isoMs(p.issued_at), exp = isoMs(p.expires_at);
+  if (iss === null) bad('issued_at'); if (exp === null) bad('expires_at');
+  if ((exp as number) < (iss as number)) bad('expires_at is before issued_at');
+  if (signed && (iss as number) > now + POLICY_FUTURE_SKEW_MS) bad('issued_at is in the future');
+  if (p.mode !== 'token' && p.mode !== 'registered_keys') bad('mode must be "token" or "registered_keys"');
+  if (!Array.isArray(p.orgs) || !p.orgs.every((x: any) => x && typeof x === 'object' && typeof x.id === 'string' && typeof x.status === 'string')) bad('orgs');
+  if (!strList(p.revoked_assets)) bad('revoked_assets');
+  if (p.assets !== undefined && !strList(p.assets)) bad('assets');
+  if (p.origins !== undefined && !strList(p.origins)) bad('origins');
+  if (p.any_name !== undefined && typeof p.any_name !== 'boolean') bad('any_name');
+  if (p.settings !== undefined && (!p.settings || typeof p.settings !== 'object' || Array.isArray(p.settings))) bad('settings');
+  if (!Array.isArray(p.keys)) bad('keys must be a list');
+  for (const k of p.keys) {
+    if (!k || typeof k !== 'object' || Array.isArray(k)) bad('key');
+    if (typeof k.id !== 'string' || !k.id || typeof k.address !== 'string' || !k.address) bad('key id/address');
+    if (!KEY_STATUSES.includes(k.status)) bad('key status');
+    if (k.org_id != null && typeof k.org_id !== 'string') bad('key org_id');
+    if (k.assets != null && !strList(k.assets)) bad('key assets');
+    if (k.expires_at != null && isoMs(k.expires_at) === null) bad('key expires_at');
+    if (k.pass_ttl_s != null && !(typeof k.pass_ttl_s === 'number' && k.pass_ttl_s > 0)) bad('key pass_ttl_s');
+    if (k.permissions != null) {
+      const pm = k.permissions;
+      if (typeof pm !== 'object' || Array.isArray(pm)) bad('key permissions');
+      for (const f of ['routes', 'methods', 'environments']) if (pm[f] != null && !strList(pm[f])) bad(`key permissions.${f} must be a list`);
+    }
+  }
 }
 
 export interface PolicySource { get(): Promise<Policy> }
@@ -261,8 +318,8 @@ export function signedPolicy(o: { siteId: string; secretKey: string; publicKeys:
 }
 /** Your own policy (file, database, config): same shape, no signature needed because you are the source. */
 export function localPolicy(get: Partial<Policy> | (() => Partial<Policy> | Promise<Partial<Policy>>)): PolicySource {
-  const defaults = { v: 1, typ: 'tokenlock.policy', site_id: 'local', seq: 0, issued_at: iso(0), expires_at: iso(8.64e15), orgs: [], revoked_assets: [], keys: [], mode: 'registered_keys' };
-  return { async get() { const p = typeof get === 'function' ? await get() : get; return Object.assign({}, defaults, p) as Policy; } };
+  const defaults = { v: 1, typ: 'tokenlock.policy', site_id: 'local', seq: 0, issued_at: iso(0), expires_at: '9999-12-31T23:59:59.000Z', orgs: [], revoked_assets: [], keys: [], mode: 'registered_keys' };
+  return { async get() { const p = typeof get === 'function' ? await get() : get; const out = Object.assign({}, defaults, p) as Policy; validatePolicy(out); return out; } };
 }
 
 // access rule, same as hosted TOKENLOCK (access.evaluate)
@@ -280,6 +337,8 @@ export function routeMatches(pattern: string, path: string) {
 export interface Resource { path?: string; method?: string; environment?: string }
 export function evaluate(policy: Policy, o: { address: string; held: string[] | null; resource?: Resource | null; now?: number }): { allowed: boolean; reason: string; key?: PolicyKey } {
   const now = o.now ?? Date.now();
+  // 0.4.2: defensive (callers may evaluate a policy that never went through validatePolicy): malformed → deny.
+  if (!policy || (policy.mode !== 'token' && policy.mode !== 'registered_keys') || !Array.isArray(policy.keys) || (policy.revoked_assets != null && !strList(policy.revoked_assets))) return { allowed: false, reason: 'policy_invalid' };
   const revoked = policy.revoked_assets || [];
   if (policy.mode !== 'registered_keys') {
     if (o.held && !o.held.filter((a) => !revoked.includes(a)).length) return { allowed: false, reason: o.held.length ? 'entitlement_revoked' : 'not_holder' };
@@ -291,13 +350,17 @@ export function evaluate(policy: Policy, o: { address: string; held: string[] | 
   if (key.status === 'revoked') return no('key_revoked');
   if (key.status === 'pending_approval') return no('pending_approval');
   if (key.status !== 'active') return no('not_registered');
-  if (key.expires_at && Date.parse(key.expires_at) <= now) return no('key_expired');
+  if (key.expires_at != null && key.expires_at !== '') { const e = isoMs(key.expires_at); if (e === null || e <= now) return no('key_expired'); }
   if (key.org_id) { const org = (policy.orgs || []).find((x) => x.id === key.org_id); if (!org || org.status !== 'approved') return no('org_not_approved'); }
   else if (policy.settings?.require_org) return no('org_required');
   if (o.held) { const ok = o.held.filter((a) => !revoked.includes(a) && (!key.assets?.length || key.assets.includes(a))); if (!ok.length) return no(o.held.length ? 'entitlement_revoked' : 'not_holder'); }
-  const r = o.resource;
+  // 0.4.3: a resource given here is validated with the same schema as every other entry point; a malformed one is
+  // refused (bad_resource / bad_path) instead of skipping the route rules. resource null/absent = identity only (low level).
+  let r: Resource | null = null;
+  if (o.resource != null) { try { r = validateResource(o.resource, 'evaluate'); } catch (e: any) { return no(e?.code === 'bad_path' ? 'bad_path' : 'bad_resource'); } if (!r) return no('bad_resource'); }
   if (r) {
-    const perm = key.permissions || {}; const routes = perm.routes ?? ['*'], methods = perm.methods ?? ['*'], envs = perm.environments ?? [];
+    const perm: any = key.permissions || {}; const routes = perm.routes ?? ['*'], methods = perm.methods ?? ['*'], envs = perm.environments ?? [];
+    if (!strList(routes) || !strList(methods) || !strList(envs)) return no('policy_invalid');
     if (r.environment && envs.length && !envs.includes('*') && !envs.includes(r.environment)) return no('environment_not_allowed');
     if (r.path) { const p = normalizePath(r.path); if (!p) return no('bad_path'); if (!routes.some((x) => routeMatches(x, p))) return no('route_not_allowed'); }
     if (r.method && !methods.includes('*') && !methods.includes(String(r.method).toUpperCase())) return no('method_not_allowed');
@@ -308,12 +371,12 @@ export function evaluate(policy: Policy, o: { address: string; held: string[] | 
 // ------------------------------------------------------------------ sign-in + local pass (spec §6)
 export interface SignInResult { valid: boolean; code: string; reason: string; address?: string; assets_held?: string[]; pass?: string; expires_at?: string; key_id?: string | null; correlation_id: string }
 const REASONS: Record<string, string> = {
-  ok: 'Signed in.', bad_pass: 'Not a valid pass.', route_not_allowed: 'This key is not allowed on this route.', method_not_allowed: 'This key is not allowed to use this method here.', environment_not_allowed: 'This key is not allowed in this environment.', bad_path: 'Not a valid path.', unknown_challenge: 'This sign-in request is unknown or was already used. Start again.', expired: 'This sign-in request expired. Start again.',
+  ok: 'Signed in.', bad_pass: 'Not a valid pass.', route_not_allowed: 'This key is not allowed on this route.', method_not_allowed: 'This key is not allowed to use this method here.', environment_not_allowed: 'This key is not allowed in this environment.', bad_path: 'Not a valid path.', bad_resource: 'Malformed authorization request: pass a valid { path, method } or { identityOnly: true }.', unknown_challenge: 'This sign-in request is unknown or was already used. Start again.', expired: 'This sign-in request expired. Start again.',
   bad_signature: 'The signature does not match this address and message.', bad_address: 'Not a Bitcoin address we support.', not_holder: 'This wallet does not hold the token.',
   lookup_failed: 'Could not read holdings right now. Try again in a minute.', lookup_disagreement: 'Holdings sources disagree. Try again in a minute.', name_required: 'Give the name you hold.',
   not_registered: 'This wallet is not a registered key for this site.', key_revoked: 'This key was revoked.', key_expired: 'This key has expired.', pending_approval: 'Waiting for the site admin to approve this wallet.',
   org_not_approved: 'The organization for this key is not approved.', org_required: 'This site requires keys to belong to an organization.', entitlement_revoked: 'This token no longer unlocks this site.',
-  policy_expired: 'Access policy is out of date. Try again in a minute.', policy_unavailable: 'Access policy is unavailable. Try again in a minute.',
+  policy_expired: 'Access policy is out of date. Try again in a minute.', policy_invalid: 'Access policy is malformed, so access is denied. Fix the policy.', policy_unavailable: 'Access policy is unavailable. Try again in a minute.',
   policy_required: 'No route policy applies: a resource (path, method or environment) was given but there is no policy, or the policy has no route rules (token mode), so it cannot be explicitly permitted. Use a registered-keys policy that grants the route, or drop `resource` for an identity-only check.',
 };
 export interface SelfVerifyConfig { store: NonceStore; holdings: HoldingsProvider; passSecret: string; policy?: PolicySource; clockSkewSeconds?: number }
@@ -329,12 +392,12 @@ export async function verifySignIn(input: { challenge_id: string; address: strin
   if (!decodeAddress(address)) return out('bad_address');
   if (!verifyMessageSignature(address, buildMessage(rec), String(input.signature || ''))) return out('bad_signature', { address });
   let policy: Policy | null = null;
-  if (cfg.policy) { try { policy = await cfg.policy.get(); } catch (e: any) { return out(e?.code === 'policy_expired' ? 'policy_expired' : 'policy_unavailable', { address }); } }
+  if (cfg.policy) { try { policy = await cfg.policy.get(); } catch (e: any) { return out(e?.code === 'policy_expired' || e?.code === 'policy_invalid' ? e.code : 'policy_unavailable', { address }); } }
   const want = [...rec.assets];
   if (rec.any_name) { if (!input.name) { if (!want.length) return out('name_required', { address }); } else want.push(normalizeAsset(input.name)); }
   let h: Record<string, Holding>;
   try { h = await cfg.holdings.holdings(address, want); } catch (e: any) { return out(e?.code === 'lookup_disagreement' ? 'lookup_disagreement' : 'lookup_failed', { address }); }
-  const held = want.filter((a) => h[a]?.held);
+  const held = want.filter((a) => h?.[a]?.held === true);
   if (!held.length) return out('not_holder', { address, assets_held: [] });
   let keyId: string | null = null, ttl = rec.pass_ttl_s;
   if (policy) {
@@ -364,8 +427,16 @@ const SCOPE = new Set(['route_not_allowed', 'method_not_allowed', 'environment_n
  * `identity_valid: true` on those answers means the pass itself (and, in token mode, the token) is still good.
  */
 function tokenModeIdentity(pol: Policy, p: any, now: number): boolean { return evaluate(pol, { address: p.sub, held: p.h, resource: null, now }).allowed; }
-export async function verifyLocalPass(token: string, o: { passSecret: string; policy?: PolicySource; resource?: Resource | null; now?: number }): Promise<{ valid: boolean; allowed: boolean; code: string; reason: string; identity_valid?: boolean; address?: string; assets_held?: string[]; expires_at?: string; key_id?: string | null }> {
+const LOCAL_PASS_KEYS = ['passSecret', 'policy', 'resource', 'identityOnly', 'now'];
+export async function verifyLocalPass(token: string, o: { passSecret: string; policy?: PolicySource; resource?: Resource | null; identityOnly?: true; now?: number }): Promise<{ valid: boolean; allowed: boolean; code: string; reason: string; identity_valid?: boolean; address?: string; assets_held?: string[]; expires_at?: string; key_id?: string | null }> {
   const no = (code: string, extra = {}) => ({ valid: SCOPE.has(code), allowed: false, code, reason: REASONS[code] || code, ...extra });
+  // 0.4.3: the authorization request is explicit. { identityOnly: true } (and no resource) is an identity-only check; a
+  // resource must pass the shared schema; anything else (no resource, unknown option, malformed resource) is refused.
+  if (!o || typeof o !== 'object') return no('bad_resource');
+  for (const k of Object.keys(o)) if (!LOCAL_PASS_KEYS.includes(k)) return no('bad_resource');
+  let req: Resource | null;
+  if ('identityOnly' in o) { if (o.identityOnly !== true || o.resource !== undefined) return no('bad_resource'); req = null; }
+  else { try { req = validateResource(o.resource, 'verifyLocalPass'); } catch (e: any) { return no(e?.code === 'bad_path' ? 'bad_path' : 'bad_resource'); } if (!req) return no('bad_resource'); }
   const m = /^tl3\.([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]{43})$/.exec(String(token || ''));
   if (!m) return no('bad_pass');
   const want = createHmac('sha256', o.passSecret).update('tl3.' + m[1]).digest();
@@ -376,15 +447,15 @@ export async function verifyLocalPass(token: string, o: { passSecret: string; po
   if (!(p.e > now)) return no('expired');
   const base = { address: p.sub, assets_held: p.h, expires_at: iso(p.e), key_id: p.k ?? null };
   if (o.policy) {
-    let pol: Policy; try { pol = await o.policy.get(); } catch (e: any) { return no(e?.code === 'policy_expired' ? 'policy_expired' : 'policy_unavailable', base); }
-    if (o.resource != null && pol.mode !== 'registered_keys') {
+    let pol: Policy; try { pol = await o.policy.get(); } catch (e: any) { return no(e?.code === 'policy_expired' || e?.code === 'policy_invalid' ? e.code : 'policy_unavailable', base); }
+    if (req != null && pol.mode !== 'registered_keys') {
       // Token-mode policy: no route rules exist, so a resource cannot be explicitly permitted (0.4.0).
       return { valid: false, allowed: false, identity_valid: tokenModeIdentity(pol, p, now), code: 'policy_required', reason: REASONS.policy_required, ...base };
     }
-    const ev = evaluate(pol, { address: p.sub, held: p.h, resource: o.resource || null, now });
+    const ev = evaluate(pol, { address: p.sub, held: p.h, resource: req, now });
     if (!ev.allowed) return no(ev.reason, base);
     if (pol.mode === 'registered_keys' && (ev.key?.id ?? null) !== (p.k ?? null)) return no('not_registered', base); // pass bound to its key
-  } else if (o.resource != null) {
+  } else if (req != null) {
     // 0.3.2 returned allowed: true here, which read as "route, method and environment were checked". They were not.
     return { valid: false, allowed: false, identity_valid: true, code: 'policy_required', reason: REASONS.policy_required, ...base };
   }

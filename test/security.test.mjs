@@ -92,29 +92,27 @@ test('strict: valid:true with missing allowed / resource echo / mismatched echo 
     const r = await c.verifyPass(P, { path: '/admin/x', method: 'GET' });
     assert.equal(r.valid, false, name); assert.equal(r.allowed, false, name);
   }
-  // an answer without an echo is accepted only when strict is explicitly off (0.2.0 behaviour), and since 0.4.0 only
-  // with a route policy (access block); without one even loose mode answers policy_required
+  // 0.4.2: loose mode (strict: false) was removed; it is a configuration error on the client and per call
+  assert.throws(() => new core.TokenlockClient({ secretKey: SK, fetch: api([], { answer: cases.no_echo }), strict: false }), (e) => e.code === 'bad_config');
   core.clearCache();
-  const loose = new core.TokenlockClient({ secretKey: SK, fetch: api([], { answer: cases.no_echo }), strict: false });
-  assert.equal((await loose.verifyPass(P, { path: '/admin/x', method: 'GET' })).code, 'policy_required');
-  core.clearCache();
-  const looseKeyed = new core.TokenlockClient({ secretKey: SK, strict: false, fetch: api([], { answer: (b) => ({ valid: true, allowed: true, ...b, access: { mode: 'registered_keys', allowed: true, reason: 'ok' } }) }) });
-  assert.equal((await looseKeyed.verifyPass(P, { path: '/admin/x', method: 'GET' })).valid, true);
+  const c = new core.TokenlockClient({ secretKey: SK, fetch: api([], { answer: (b) => ({ valid: true, allowed: true, ...b, access: { mode: 'registered_keys', allowed: true, reason: 'ok' } }) }) });
+  await assert.rejects(c.verifyPass(P, { path: '/admin/x', method: 'GET' }, { strict: false }), (e) => e.code === 'bad_config');
+  assert.equal((await c.verifyPass(P, { path: '/admin/x', method: 'GET' })).valid, false, 'a keyed answer without a resource echo is denied');
 });
-test('clearCache(pass) drops every resource entry for that pass only; cache:false always asks', async () => {
+test('clearCache(pass) drops that pass only; cache:false always asks; registered-key resource answers are never cached (0.4.2: always strict)', async () => {
   core.clearCache(); const calls = [];
-  const c = new core.TokenlockClient({ secretKey: SK, fetch: api(calls), strict: false });
-  for (const p of ['/admin/a', '/admin/b']) { await c.verifyPass(P, { path: p, method: 'GET' }); await c.verifyPass(P2, { path: p, method: 'GET' }); }
-  assert.equal(calls.length, 4);
-  for (const p of ['/admin/a', '/admin/b']) { await c.verifyPass(P, { path: p, method: 'GET' }); await c.verifyPass(P2, { path: p, method: 'GET' }); }
-  assert.equal(calls.length, 4, 'all cached');
+  const tokenOnly = (b) => ({ valid: true, ...b }); // identity answers (token-only site) are the only cached kind
+  const c = new core.TokenlockClient({ secretKey: SK, fetch: api(calls, { answer: tokenOnly }) });
+  await c.verifyPass(P, { identityOnly: true }); await c.verifyPass(P2, { identityOnly: true }); assert.equal(calls.length, 2);
+  await c.verifyPass(P, { identityOnly: true }); await c.verifyPass(P2, { identityOnly: true }); assert.equal(calls.length, 2, 'all cached');
   core.clearCache(P);
-  for (const p of ['/admin/a', '/admin/b']) { await c.verifyPass(P, { path: p, method: 'GET' }); await c.verifyPass(P2, { path: p, method: 'GET' }); }
-  assert.equal(calls.length, 6, 'both of P\'s entries refetched, P2 still cached');
-  await c.verifyPass(P2, { path: '/admin/a', method: 'GET' }, { cache: false });
-  assert.equal(calls.length, 7);
+  await c.verifyPass(P, { identityOnly: true }); await c.verifyPass(P2, { identityOnly: true }); assert.equal(calls.length, 3, 'P refetched, P2 still cached');
+  await c.verifyPass(P2, { identityOnly: true }, { cache: false }); assert.equal(calls.length, 4);
   const nc = new core.TokenlockClient({ secretKey: SK, fetch: api(calls), cache: false });
-  await nc.verifyPass(P2); await nc.verifyPass(P2); assert.equal(calls.length, 9);
+  await nc.verifyPass(P2, { identityOnly: true }); await nc.verifyPass(P2, { identityOnly: true }); assert.equal(calls.length, 6);
+  const k = new core.TokenlockClient({ secretKey: SK, fetch: api(calls) });
+  await k.verifyPass(P, { path: '/admin/a', method: 'GET' }); await k.verifyPass(P, { path: '/admin/a', method: 'GET' });
+  assert.equal(calls.length, 8, 'registered-key resource answers are asked every time');
 });
 test('strict: a revoked registered key is denied on the very next request (no cache)', async () => {
   core.clearCache(); const st = {};
@@ -141,12 +139,12 @@ test('API mode: JSON 401/403 with a reason for every denial (Accept: application
     r = await raw(b, '/admin/x', { accept: 'text/html' }); assert.equal(r.status, 302, 'browsers still get the sign-in redirect');
   });
 });
-test('config: strict:true with failOpen or checkResource:false throws; without strict it warns and turns strict off', () => {
-  assert.throws(() => ex.tokenlock({ protect: '/a', signInPage: '/s', secretKey: SK, strict: true, failOpen: true }), /failOpen/);
-  assert.throws(() => nx.tokenlock({ protect: '/a', signInPage: '/s', secretKey: SK, strict: true, checkResource: false }), /checkResource/);
-  const warn = console.warn; const seen = []; console.warn = (m) => seen.push(m);
-  try { ex.tokenlock({ protect: '/a', signInPage: '/s', secretKey: SK, failOpen: true }); } finally { console.warn = warn; }
-  assert.match(seen.join('\n'), /strict mode is OFF.*UNVERIFIED/);
+test('config (0.4.2): failOpen / checkResource (any value, with or without strict) and strict:false throw bad_config', () => {
+  for (const o of [{ strict: true, failOpen: true }, { failOpen: true }, { failOpen: false }, { strict: true, checkResource: false }, { checkResource: false }, { checkResource: true }, { strict: false }]) {
+    assert.throws(() => ex.tokenlock({ protect: '/a', signInPage: '/s', secretKey: SK, ...o }), (e) => e.code === 'bad_config', 'express ' + JSON.stringify(o));
+    assert.throws(() => nx.tokenlock({ protect: '/a', signInPage: '/s', secretKey: SK, ...o }), (e) => e.code === 'bad_config', 'next ' + JSON.stringify(o));
+  }
+  assert.doesNotThrow(() => ex.tokenlock({ protect: '/a', signInPage: '/s', secretKey: SK, strict: true }), 'strict: true is still accepted');
 });
 test('next: getPass forwards a resource; authorize() is strict + uncached; middleware sees raw encoded paths', async () => {
   core.clearCache(); const calls = [];
