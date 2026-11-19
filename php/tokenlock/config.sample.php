@@ -42,16 +42,18 @@ return array(
     // 'cookie_name' => 'tokenlock_pass',
     // 'max_age_seconds' => 86400,
 
-    // Enterprise access controls (sites with registered keys): the page path and method are sent with each
-    // check so routes, methods and environments are enforced. Set your environment name if you use them.
-    // 'check_resource' => true,
+    // Enterprise access controls (sites with registered keys): the page path, method and environment are sent
+    // with every check (always) so routes, methods and environments are enforced. Set your environment name.
     // 'environment' => 'production',
 
-    // 0.2.1 security options (defaults shown):
-    // 'strict' => null,      // on unless fail_open / check_resource=false; true + either = configuration error
-    // 'cache' => true,       // false = check with the API on every request (strict never caches registered keys)
+    // Security options (defaults shown). Strict mode is always on (0.4.2).
+    // 'cache' => true,       // false = check with the API on every request (registered-key answers are never cached)
     // 'api_paths' => array(),// e.g. array('/api'): JSON 401/403 instead of a redirect (Accept: application/json also)
-    // 'fail_open' => false,  // true = let pass holders in UNVERIFIED when the API is down (turns strict off)
+    // 'timeout_seconds' => 8,// 1-60; a slow or unreachable API denies protected pages (503)
+    //
+    // 0.4.2 removed 'fail_open' and 'check_resource' (and TOKENLOCK_FAIL_OPEN / TOKENLOCK_CHECK_RESOURCE) and
+    // 'strict' => false. Setting any of them, an unknown option (typo) or a wrong type is a configuration error:
+    // protected pages answer 500 and the reason is written to the server error log.
 
     // 0.3.0 early block (early.php via auto_prepend_file or the first line of index.php). Nothing runs until
     // 'protect' or 'deny_ips' is set. Kill switch: create tokenlock/early.off or set TOKENLOCK_EARLY=off.

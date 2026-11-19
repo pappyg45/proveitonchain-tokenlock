@@ -19,7 +19,7 @@
 if (defined('TOKENLOCK_PHP')) {
     return;
 }
-define('TOKENLOCK_PHP', '0.4.1');
+define('TOKENLOCK_PHP', '0.4.2');
 
 class TokenlockException extends Exception
 {
@@ -52,7 +52,7 @@ function tokenlock_configure($overrides = null)
         return tokenlock_config();
     }
     $_tokenlock_config = array_merge(tokenlock_defaults(), is_array($overrides) ? $overrides : array());
-    if (!empty($_tokenlock_config['api_base'])) {
+    if (!empty($_tokenlock_config['api_base']) && is_string($_tokenlock_config['api_base'])) {
         $_tokenlock_config['api_base'] = rtrim($_tokenlock_config['api_base'], '/');
     }
     return $_tokenlock_config;
@@ -73,21 +73,17 @@ function tokenlock_defaults()
         'cache_dir' => sys_get_temp_dir(),
         'timeout_seconds' => 8,
         'public_origin' => '',
-        // Enterprise access controls: send the page path + method with each pass check (sites with registered
-        // keys enforce routes, methods and environments). 0.4.0: a token-only site has no route policy, so these
-        // checks are denied with policy_required unless token_only is true.
-        'check_resource' => true,
         // Token-only sites (registered keys off): true = every holder of your site's token may open every protected
         // page. Passes are then checked for identity and token only; if the site has registered keys after all, its
         // routes, methods and environments are still enforced. Default false (0.4.0).
         'token_only' => false,
+        // Enterprise access controls: the page path, method and this environment are sent with every pass check
+        // (always, since 0.4.2). 0.4.0: a token-only site has no route policy, so these checks are denied with
+        // policy_required unless token_only is true.
         'environment' => '',
-        // If our API can't be reached: false (default) = show "try again" (503) and keep the cookie;
-        // true = let visitors who have a pass cookie in, unverified. Low-risk content only.
-        'fail_open' => false,
-        // Strict mode (0.2.1): an answer counts only if complete and allowed === true for exactly this request.
-        // null = on, unless fail_open is true or check_resource is false (then off, with a logged warning).
-        // true + fail_open / check_resource false = configuration error.
+        // Strict mode is always on since 0.4.2: an answer counts only if complete, unambiguous and allowed === true
+        // for exactly this request. null or true are accepted; false (loose mode) is a configuration error.
+        // 0.4.2 removed 'fail_open' and 'check_resource': setting either (any value) is a configuration error.
         'strict' => null,
         // Cache good answers on disk. In strict mode, registered-key answers are never cached.
         'cache' => true,
@@ -133,7 +129,9 @@ function tokenlock_config()
         'TOKENLOCK_PUBLIC_ORIGIN' => 'public_origin',
         'TOKENLOCK_COOKIE_NAME' => 'cookie_name',
         'TOKENLOCK_ENVIRONMENT' => 'environment',
+        // Removed in 0.4.2, still read so that setting them is reported as a configuration error (never ignored).
         'TOKENLOCK_FAIL_OPEN' => 'fail_open',
+        'TOKENLOCK_CHECK_RESOURCE' => 'check_resource',
         'TOKENLOCK_STRICT' => 'strict',
         'TOKENLOCK_TOKEN_ONLY' => 'token_only',
     );
@@ -143,7 +141,7 @@ function tokenlock_config()
             $cfg[$key] = $v;
         }
     }
-    $cfg['api_base'] = rtrim($cfg['api_base'], '/');
+    $cfg['api_base'] = is_string($cfg['api_base']) ? rtrim($cfg['api_base'], '/') : $cfg['api_base'];
     if (empty($cfg['cache_dir'])) {
         $cfg['cache_dir'] = sys_get_temp_dir();
     }
@@ -600,13 +598,25 @@ function tokenlock_request($method, $path, $body = null)
     } catch (Exception $e) {
         throw new TokenlockException('Could not reach the TOKENLOCK API.', 0, 'network');
     }
-    $j = json_decode($r['body'], true);
-    if ($r['status'] < 200 || $r['status'] >= 300) {
-        $msg = (is_array($j) && !empty($j['error'])) ? $j['error'] : ('TOKENLOCK API error ' . $r['status']);
-        $code = (is_array($j) && !empty($j['code'])) ? $j['code'] : null;
-        throw new TokenlockException($msg, $r['status'], $code);
+    // 0.4.2: answers are capped at 64 KiB and a 2xx answer must be a JSON object; anything else is a bad answer
+    // (502, so protected access is denied with 503 like an outage).
+    if (!is_array($r) || !isset($r['body']) || !is_string($r['body'])) {
+        throw new TokenlockException('TOKENLOCK API answered with something unreadable.', 502, 'bad_answer');
     }
-    return is_array($j) ? $j : array();
+    if (strlen($r['body']) > TOKENLOCK_MAX_ANSWER_BYTES) {
+        throw new TokenlockException('TOKENLOCK API answer is too large.', 502, 'bad_answer');
+    }
+    $j = json_decode($r['body'], true);
+    $status = isset($r['status']) ? (int) $r['status'] : 0;
+    if ($status < 200 || $status >= 300) {
+        $msg = (is_array($j) && !empty($j['error']) && is_string($j['error'])) ? $j['error'] : ('TOKENLOCK API error ' . $status);
+        $code = (is_array($j) && !empty($j['code']) && is_string($j['code'])) ? $j['code'] : null;
+        throw new TokenlockException($msg, $status, $code);
+    }
+    if (!tokenlock_is_obj($j)) {
+        throw new TokenlockException('TOKENLOCK API answered with something that is not a JSON object.', 502, 'bad_answer');
+    }
+    return $j;
 }
 
 /**
@@ -711,13 +721,10 @@ function tokenlock_clean_resource($resource)
     return $out ? $out : null;
 }
 
-/** The resource for this request (path + method + configured environment), or null when check_resource is off. */
+/** The resource for this request (path + method + configured environment). Always sent since 0.4.2. */
 function tokenlock_current_resource()
 {
     $cfg = tokenlock_config();
-    if (isset($cfg['check_resource']) && !$cfg['check_resource']) {
-        return null;
-    }
     return array(
         'path' => tokenlock_request_path(),
         'method' => isset($_SERVER['REQUEST_METHOD']) ? $_SERVER['REQUEST_METHOD'] : 'GET',
@@ -749,31 +756,184 @@ function tokenlock_bool($v)
     return in_array($s, array('1', 'true', 'yes', 'on'), true);
 }
 
+if (!defined('TOKENLOCK_MAX_ANSWER_BYTES')) {
+    define('TOKENLOCK_MAX_ANSWER_BYTES', 65536);
+}
+
+/** A JSON list (sequential keys)? */
+function tokenlock_is_list($a)
+{
+    if (!is_array($a)) {
+        return false;
+    }
+    $i = 0;
+    foreach ($a as $k => $unused) {
+        if ($k !== $i++) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/** A JSON object (decoded as an associative array; {} decodes to array())? */
+function tokenlock_is_obj($a)
+{
+    return is_array($a) && ($a === array() || !tokenlock_is_list($a));
+}
+
+/** Strict boolean-ish: true/false/null for recognised values, the string 'invalid' for anything else. */
+function tokenlock_boolish($v)
+{
+    if (is_bool($v) || $v === null) {
+        return $v;
+    }
+    if ($v === 1 || $v === 0) {
+        return $v === 1;
+    }
+    if (!is_string($v)) {
+        return 'invalid';
+    }
+    $s = strtolower(trim($v));
+    if ($s === '') {
+        return null;
+    }
+    if (in_array($s, array('1', 'true', 'yes', 'on'), true)) {
+        return true;
+    }
+    if (in_array($s, array('0', 'false', 'no', 'off'), true)) {
+        return false;
+    }
+    return 'invalid';
+}
+
+function tokenlock_str_list_ok($v)
+{
+    if (is_string($v)) {
+        return true;
+    }
+    if (!is_array($v)) {
+        return false;
+    }
+    foreach ($v as $x) {
+        if (!is_string($x)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/** Keys allowed in 'early' (early.php). */
+function tokenlock_early_keys()
+{
+    return array('protect', 'public', 'exclude_paths', 'admin_ips', 'deny_ips', 'trusted_proxies');
+}
+
+/** null if the 'early' settings are usable, else why not. */
+function tokenlock_early_problem($e)
+{
+    if ($e === null || $e === array()) {
+        return null;
+    }
+    if (!is_array($e)) {
+        return "'early' must be an array of settings.";
+    }
+    foreach ($e as $k => $v) {
+        if (!in_array($k, tokenlock_early_keys(), true)) {
+            return "unknown 'early' setting '" . (is_string($k) ? $k : 'index ' . $k) . "' (allowed: " . implode(', ', tokenlock_early_keys()) . ').';
+        }
+        if (!tokenlock_str_list_ok($v)) {
+            return "'early' setting '$k' must be a path/IP or a list of them.";
+        }
+    }
+    return null;
+}
+
 /**
- * Effective strict mode. Throws a TokenlockException (bad_config) for strict + fail_open or strict + no resource check;
- * logs a loud warning when strict is off.
+ * 0.4.2 configuration check. Returns null when the configuration is usable, else the reason. Removed options
+ * (fail_open, check_resource), strict = false, unknown options (typos), wrong types and a missing or malformed secret
+ * key are all configuration errors: they are reported, never silently ignored or guessed.
+ */
+function tokenlock_config_problem($cfg = null)
+{
+    $cfg = $cfg === null ? tokenlock_config() : $cfg;
+    if (!is_array($cfg)) {
+        return 'the configuration is not an array.';
+    }
+    $removed = array(
+        'fail_open' => "'fail_open' was removed in 0.4.2: protected pages are always denied while the TOKENLOCK API cannot answer. Remove it (and TOKENLOCK_FAIL_OPEN).",
+        'check_resource' => "'check_resource' was removed in 0.4.2: the path, method and environment are always checked. Remove it (and TOKENLOCK_CHECK_RESOURCE); token-only sites set 'token_only' => true.",
+    );
+    foreach ($removed as $k => $why) {
+        if (array_key_exists($k, $cfg)) {
+            return $why;
+        }
+    }
+    $known = array_merge(array_keys(tokenlock_defaults()), array('http_handler'));
+    foreach ($cfg as $k => $v) {
+        if (!in_array($k, $known, true)) {
+            return "unknown option '" . (is_string($k) ? $k : 'index ' . $k) . "'. Check the spelling: unknown options are refused so a typo can't weaken protection.";
+        }
+    }
+    if (!isset($cfg['secret_key']) || !is_string($cfg['secret_key']) || !preg_match('/^sk_[A-Za-z0-9_-]{20,200}$/', $cfg['secret_key'])) {
+        return "'secret_key' must be your sk_… secret key (config.php or TOKENLOCK_SECRET_KEY).";
+    }
+    $st = isset($cfg['strict']) ? tokenlock_boolish($cfg['strict']) : null;
+    if ($st !== null && $st !== true) {
+        return "'strict' => false (loose mode) was removed in 0.4.2; strict mode is always on. Remove the 'strict' setting.";
+    }
+    foreach (array('token_only', 'cache') as $k) {
+        if (array_key_exists($k, $cfg) && tokenlock_boolish($cfg[$k]) === 'invalid') {
+            return "'$k' must be true or false.";
+        }
+    }
+    $t = isset($cfg['timeout_seconds']) ? $cfg['timeout_seconds'] : 8;
+    if (!((is_int($t) || (is_string($t) && ctype_digit($t))) && (int) $t >= 1 && (int) $t <= 60)) {
+        return "'timeout_seconds' must be a whole number of seconds from 1 to 60.";
+    }
+    $m = isset($cfg['max_age_seconds']) ? $cfg['max_age_seconds'] : 86400;
+    if (!((is_int($m) || (is_string($m) && ctype_digit($m))) && (int) $m >= 0)) {
+        return "'max_age_seconds' must be a whole number of seconds.";
+    }
+    $api = isset($cfg['api_base']) ? $cfg['api_base'] : '';
+    $u = is_string($api) ? @parse_url($api) : false;
+    if (!is_array($u) || !isset($u['scheme'], $u['host']) || !in_array(strtolower($u['scheme']), array('https', 'http'), true) || preg_match('/\s/', $api)) {
+        return "'api_base' must be an http(s) URL.";
+    }
+    foreach (array('site_key', 'sign_in_page', 'after_sign_in', 'after_sign_out', 'cookie_name', 'cookie_path', 'cache_dir', 'public_origin', 'environment') as $k) {
+        if (isset($cfg[$k]) && !is_string($cfg[$k])) {
+            return "'$k' must be a string.";
+        }
+    }
+    if (isset($cfg['api_paths']) && !tokenlock_str_list_ok($cfg['api_paths'])) {
+        return "'api_paths' must be a path or a list of paths.";
+    }
+    $ep = tokenlock_early_problem(isset($cfg['early']) ? $cfg['early'] : null);
+    if ($ep !== null) {
+        return $ep;
+    }
+    if (!empty($cfg['http_handler']) && !is_callable($cfg['http_handler'])) {
+        return "'http_handler' must be callable.";
+    }
+    return null;
+}
+
+/** Throw TokenlockException('bad_config') when the configuration is not usable. */
+function tokenlock_assert_config()
+{
+    $why = tokenlock_config_problem();
+    if ($why !== null) {
+        throw new TokenlockException('TOKENLOCK configuration error: ' . $why, 0, 'bad_config');
+    }
+}
+
+/**
+ * Strict mode is always on since 0.4.2. Kept for callers of 0.2.x-0.4.1: checks the configuration (throws a
+ * TokenlockException with error_code 'bad_config' when it is not usable) and returns true.
  */
 function tokenlock_strict()
 {
-    static $warned = false;
-    $cfg = tokenlock_config();
-    $failOpen = (bool) tokenlock_bool(isset($cfg['fail_open']) ? $cfg['fail_open'] : false);
-    $checkRes = !(isset($cfg['check_resource']) && tokenlock_bool($cfg['check_resource']) === false);
-    $strict = tokenlock_bool(isset($cfg['strict']) ? $cfg['strict'] : null);
-    if ($strict === true && $failOpen) {
-        throw new TokenlockException('TOKENLOCK: fail_open cannot be used with strict = true.', 0, 'bad_config');
-    }
-    if ($strict === true && !$checkRes) {
-        throw new TokenlockException('TOKENLOCK: check_resource = false cannot be used with strict = true.', 0, 'bad_config');
-    }
-    if ($strict === null) {
-        $strict = !$failOpen && $checkRes;
-    }
-    if (!$strict && !$warned) {
-        $warned = true;
-        error_log('[TOKENLOCK] WARNING: strict mode is OFF' . ($failOpen ? '; fail_open lets visitors in UNVERIFIED when the API is down' : '') . (!$checkRes ? '; routes, methods and environments are NOT checked' : '') . '. Use only for low-risk content.');
-    }
-    return $strict;
+    tokenlock_assert_config();
+    return true;
 }
 
 /** Is the echoed resource this request's resource? Paths compare in the lowercased canonical form. */
@@ -813,62 +973,83 @@ function tokenlock_policy_required($info)
     return $info;
 }
 
-/** Loose (non-strict) answer check: well-formed, not denied, and any echoed resource is this one. */
-function tokenlock_loose_ok($info, $res)
-{
-    if ($res && tokenlock_no_policy($info)) {
-        return false;
-    }
-    $ok = is_array($info) && !empty($info['valid']) && $info['valid'] === true && !empty($info['site_id']) && !empty($info['address'])
-        && !(array_key_exists('allowed', $info) && $info['allowed'] === false)
-        && !(isset($info['access']['allowed']) && $info['access']['allowed'] === false);
-    if ($ok && $res) {
-        $e = isset($info['resource']) ? $info['resource'] : (isset($info['access']['resource']) ? $info['access']['resource'] : null);
-        if (is_array($e) && !tokenlock_same_resource($res, $e)) {
-            return false;
-        }
-    }
-    return $ok;
-}
-
-/** Strict answer check: complete, allowed === true, for exactly this resource. Returns null if good, else a deny code. */
+/**
+ * Strict answer check (the only mode since 0.4.2): complete, unambiguous, allowed === true for exactly this resource.
+ * Returns null if good, else a deny code. Wrong types, missing fields and contradictions are all a no.
+ */
 function tokenlock_strict_problem($info, $res)
 {
-    if (!is_array($info)) {
+    if (!tokenlock_is_obj($info)) {
         return 'bad_answer';
     }
+    $a = array_key_exists('access', $info) ? $info['access'] : null;
     if (!isset($info['valid']) || $info['valid'] !== true) {
-        return !empty($info['code']) ? $info['code'] : 'bad_pass';
+        if (!empty($info['code']) && is_string($info['code'])) {
+            return $info['code'];
+        }
+        return (is_array($a) && !empty($a['reason']) && is_string($a['reason'])) ? $a['reason'] : 'bad_pass';
+    }
+    // contradictions: a "yes" that also carries an error, a denial code or a failed identity → no
+    if ((array_key_exists('code', $info) && $info['code'] !== null && $info['code'] !== 'ok') || array_key_exists('error', $info)
+        || (array_key_exists('identity_valid', $info) && $info['identity_valid'] !== true)) {
+        return (isset($info['code']) && is_string($info['code']) && preg_match('/^[a-z_]{1,64}$/', $info['code']) && $info['code'] !== 'ok') ? $info['code'] : 'conflicting_answer';
     }
     if (empty($info['address']) || !is_string($info['address']) || empty($info['site_id']) || !is_string($info['site_id'])) {
         return 'incomplete_answer';
     }
-    $exp = !empty($info['expires_at']) ? strtotime($info['expires_at']) : false;
+    if (array_key_exists('assets_held', $info) && !tokenlock_is_list($info['assets_held'])) {
+        return 'incomplete_answer';
+    }
+    if (!isset($info['expires_at']) || !is_string($info['expires_at']) || !preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$/', $info['expires_at'])) {
+        return 'incomplete_answer';
+    }
+    $exp = strtotime($info['expires_at']);
     if ($exp === false || $exp <= time()) {
         return 'expired';
     }
     if ($res && !array_key_exists('access', $info)) {
         return 'policy_required';
     }
+    if (array_key_exists('allowed', $info) && $info['allowed'] !== true) {
+        return (is_array($a) && isset($a['reason']) && is_string($a['reason']) && $a['reason'] !== 'ok' && $a['reason'] !== '') ? $a['reason'] : 'not_allowed';
+    }
     if (array_key_exists('access', $info)) {
-        $a = $info['access'];
-        if (!is_array($a) || !isset($a['mode']) || $a['mode'] !== 'registered_keys' || !isset($a['allowed']) || $a['allowed'] !== true) {
-            return (is_array($a) && !empty($a['reason'])) ? $a['reason'] : 'not_allowed';
+        if (!tokenlock_is_obj($a) || !isset($a['mode']) || $a['mode'] !== 'registered_keys' || !isset($a['allowed']) || $a['allowed'] !== true) {
+            return (is_array($a) && !empty($a['reason']) && is_string($a['reason'])) ? $a['reason'] : 'not_allowed';
         }
+        if (array_key_exists('reason', $a) && $a['reason'] !== 'ok') {
+            return 'conflicting_answer';
+        }
+    }
+    $echoes = array();
+    if (array_key_exists('resource', $info) && $info['resource'] !== null) {
+        $echoes[] = $info['resource'];
+    }
+    if (is_array($a) && array_key_exists('resource', $a) && $a['resource'] !== null) {
+        $echoes[] = $a['resource'];
     }
     if ($res) {
         if (!isset($info['allowed']) || $info['allowed'] !== true) {
-            return (isset($info['access']['reason']) && $info['access']['reason'] !== 'ok') ? $info['access']['reason'] : 'not_allowed';
+            return 'not_allowed';
         }
-        $e = isset($info['resource']) ? $info['resource'] : (isset($info['access']['resource']) ? $info['access']['resource'] : null);
-        if (!is_array($e)) {
+        if (!$echoes) {
             return 'incomplete_answer';
         }
-        if (!tokenlock_same_resource($res, $e)) {
-            return 'resource_mismatch';
+        foreach ($echoes as $e) {
+            if (!tokenlock_is_obj($e)) {
+                return 'incomplete_answer';
+            }
+            if (!tokenlock_same_resource($res, $e)) {
+                return 'resource_mismatch';
+            }
         }
-    } elseif (array_key_exists('allowed', $info) && $info['allowed'] === false) {
-        return 'not_allowed';
+    } else {
+        // an identity answer must not name a resource
+        foreach ($echoes as $e) {
+            if (!tokenlock_is_obj($e) || isset($e['path']) || isset($e['method']) || isset($e['environment'])) {
+                return 'conflicting_answer';
+            }
+        }
     }
     return null;
 }
@@ -881,7 +1062,17 @@ function tokenlock_verify_pass($pass, $resource = null, $opts = array())
 {
     $cfg = tokenlock_config();
     if (empty($cfg['secret_key'])) {
-        throw new TokenlockException('Missing secret key. Set it in config.php or TOKENLOCK_SECRET_KEY.', 0, 'no_secret_key');
+        throw new TokenlockException('Missing secret key. Set it in config.php or TOKENLOCK_SECRET_KEY.', 0, 'bad_config');
+    }
+    tokenlock_assert_config();
+    if (!is_array($opts)) {
+        $opts = array();
+    }
+    if (array_key_exists('strict', $opts) && $opts['strict'] !== null && $opts['strict'] !== true) {
+        throw new TokenlockException("TOKENLOCK configuration error: 'strict' => false (loose mode) was removed in 0.4.2.", 0, 'bad_config');
+    }
+    if (array_key_exists('cache', $opts) && !is_bool($opts['cache'])) {
+        throw new TokenlockException("TOKENLOCK configuration error: 'cache' must be true or false.", 0, 'bad_config');
     }
     if (!tokenlock_pass_looks_valid($pass)) {
         return array('valid' => false, 'code' => 'bad_pass', 'reason' => 'Not a valid pass.');
@@ -891,15 +1082,15 @@ function tokenlock_verify_pass($pass, $resource = null, $opts = array())
     } catch (TokenlockException $e) {
         return array('valid' => false, 'allowed' => false, 'code' => 'bad_path', 'reason' => 'Not a valid path.');
     }
-    $strict = array_key_exists('strict', $opts) ? (bool) $opts['strict'] : ($res ? tokenlock_strict() : false);
-    $useCache = array_key_exists('cache', $opts) ? (bool) $opts['cache'] : (tokenlock_bool(isset($cfg['cache']) ? $cfg['cache'] : true) !== false);
+    $strict = true; // 0.4.2: always strict
+    $useCache = array_key_exists('cache', $opts) ? $opts['cache'] : (tokenlock_boolish(isset($cfg['cache']) ? $cfg['cache'] : true) !== false);
     // One cache entry per (API, secret key, pass, mode, method, canonical lowercased path, environment). The file name
     // also hashes the secret key. Every hit is checked again against this request's resource before it is used.
     $ck = $pass . "\n" . $cfg['api_base'] . "\n" . ($strict ? 's' : 'l') . "\n" . ($res ? json_encode($res) : '');
     if ($useCache) {
         $hit = tokenlock_cache_get($ck, $cfg['secret_key']);
         if (is_array($hit)) {
-            $again = $strict ? tokenlock_strict_problem($hit, $res) === null : tokenlock_loose_ok($hit, $res);
+            $again = tokenlock_strict_problem($hit, $res) === null && !array_key_exists('access', $hit);
             if ($again) {
                 return $hit;
             }
@@ -907,43 +1098,23 @@ function tokenlock_verify_pass($pass, $resource = null, $opts = array())
         }
     }
     $info = tokenlock_request('POST', '/api/v1/gate/verify', array_merge(array('pass' => $pass), $res ? $res : array()));
-    if ($strict) {
-        $why = tokenlock_strict_problem($info, $res);
-        if ($why === 'policy_required' && tokenlock_no_policy($info)) {
-            return tokenlock_policy_required($info);
-        }
-        if ($why !== null) {
-            if (!is_array($info)) {
-                $info = array();
-            }
-            $keep = isset($info['valid']) && $info['valid'] === false && !empty($info['code']);
-            $info['valid'] = false;
-            $info['allowed'] = false;
-            if (!$keep) {
-                $info['code'] = $why;
-            }
-            return $info;
-        }
-        if ($useCache && !array_key_exists('access', $info)) {
-            tokenlock_cache_put($ck, $cfg['secret_key'], $info);
-        }
-        return $info;
-    }
-    if ($res && tokenlock_no_policy($info)) {
+    $why = tokenlock_strict_problem($info, $res);
+    if ($why === 'policy_required' && tokenlock_no_policy($info)) {
         return tokenlock_policy_required($info);
     }
-    $ok = tokenlock_loose_ok($info, $res);
-    if (!$ok) {
+    if ($why !== null) {
         if (!is_array($info)) {
             $info = array();
         }
+        $keep = isset($info['valid']) && $info['valid'] === false && !empty($info['code']) && is_string($info['code']);
         $info['valid'] = false;
-        if (empty($info['code'])) {
-            $info['code'] = 'bad_pass';
+        $info['allowed'] = false;
+        if (!$keep) {
+            $info['code'] = $why;
         }
         return $info;
     }
-    if ($useCache) {
+    if ($useCache && !array_key_exists('access', $info)) {
         tokenlock_cache_put($ck, $cfg['secret_key'], $info);
     }
     return $info;
@@ -958,7 +1129,8 @@ function tokenlock_check_request($pass, $opts = array())
     static $warned = false;
     $cfg = tokenlock_config();
     $res = tokenlock_current_resource();
-    if (tokenlock_bool(isset($cfg['token_only']) ? $cfg['token_only'] : false) === true) {
+    tokenlock_assert_config();
+    if (tokenlock_boolish(isset($cfg['token_only']) ? $cfg['token_only'] : false) === true) {
         $info = tokenlock_verify_pass($pass, null, $opts);
         if (is_array($info) && !empty($info['valid']) && array_key_exists('access', $info) && $res) {
             $info = tokenlock_verify_pass($pass, $res, $opts);
@@ -1022,7 +1194,7 @@ function tokenlock_protect($patterns, $public = array())
 function tokenlock_pass()
 {
     global $_tokenlock_pass;
-    if (is_array($_tokenlock_pass) && (!empty($_tokenlock_pass['valid']) || !empty($_tokenlock_pass['fail_open']))) {
+    if (is_array($_tokenlock_pass) && isset($_tokenlock_pass['valid']) && $_tokenlock_pass['valid'] === true) {
         return $_tokenlock_pass;
     }
     $pass = tokenlock_read_pass();
@@ -1050,12 +1222,18 @@ function tokenlock_pass()
 function tokenlock_require()
 {
     global $_tokenlock_pass;
-    $strict = tokenlock_strict(); // throws on unsafe strict configuration
     $path = tokenlock_canonical_path(tokenlock_request_path());
+    $api = $path !== null && tokenlock_is_api_request($path);
+    $bad = tokenlock_config_problem();
+    if ($bad !== null) {
+        // 0.4.2: an unusable configuration never opens a protected page (500, logged; the reason is not shown to visitors).
+        error_log('[TOKENLOCK] configuration error, protected page refused: ' . $bad);
+        tokenlock_send_bad_config($api);
+    }
+    $strict = true;
     if ($path === null) {
         tokenlock_send_json(400, array('error' => 'Not a valid path.', 'code' => 'bad_path', 'reason' => 'Not a valid path.'));
     }
-    $api = tokenlock_is_api_request($path);
     $pass = tokenlock_read_pass();
     try {
         $info = null;
@@ -1063,18 +1241,15 @@ function tokenlock_require()
             $info = tokenlock_check_request($pass, array('strict' => $strict));
         }
     } catch (TokenlockException $e) {
-        $cfg0 = tokenlock_config();
+        if ($e->error_code === 'bad_config') {
+            error_log('[TOKENLOCK] configuration error, protected page refused: ' . $e->getMessage());
+            tokenlock_send_bad_config($api);
+        }
         $unavailable = ($e->error_code === 'network' || $e->getCode() >= 500 || (int) $e->status >= 500);
         if (!$unavailable) {
             throw $e;
         }
-        if (!$strict && tokenlock_bool($cfg0['fail_open'])) {
-            if (!headers_sent()) {
-                header('X-Tokenlock: fail-open');
-            }
-            $_tokenlock_pass = array('valid' => false, 'fail_open' => true);
-            return $_tokenlock_pass;
-        }
+        // 0.4.2: fail_open was removed; an unreachable API or an unreadable answer always denies.
         if ($api) {
             if (!headers_sent()) {
                 header('Retry-After: 15');
@@ -1116,6 +1291,21 @@ function tokenlock_require()
     exit;
 }
 
+/** 500 for an unusable configuration (0.4.2). Never opens the page; the details go to the error log only. */
+function tokenlock_send_bad_config($api)
+{
+    if ($api) {
+        tokenlock_send_json(500, array('error' => 'This site\'s sign-in settings are invalid, so protected access is refused.', 'code' => 'bad_config', 'reason' => 'Configuration error (see the server error log).'));
+    }
+    if (!headers_sent()) {
+        http_response_code(500);
+        header('Content-Type: text/html; charset=utf-8');
+        header('Cache-Control: no-store');
+    }
+    echo '<!doctype html><meta charset="utf-8"><title>Configuration error</title><p>This page is locked and the site&rsquo;s sign-in settings are invalid, so it was not opened. The site owner can find the reason in the server error log.</p>';
+    exit;
+}
+
 /** JSON response helper for session.php */
 function tokenlock_send_json($status, $body, $cookie = null)
 {
@@ -1149,7 +1339,10 @@ function tokenlock_handle_session()
     try {
         $info = tokenlock_verify_pass($pass);
     } catch (TokenlockException $e) {
-        tokenlock_send_json(503, array(
+        if ($e->error_code === 'bad_config') {
+            error_log('[TOKENLOCK] configuration error, sign-in refused: ' . $e->getMessage());
+        }
+        tokenlock_send_json($e->error_code === 'bad_config' ? 500 : 503, array(
             'ok' => false,
             'code' => $e->error_code ? $e->error_code : 'unavailable',
             'error' => 'Could not check the pass right now. Try again.',
