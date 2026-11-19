@@ -1,0 +1,5 @@
+{
+  "about": "safeNext rules (JS SDK, Cloudflare and Express examples, PHP tokenlock_safe_next and signin.php): a relative path with a single leading '/', else the fallback '/'.",
+  "allowed": ["/", "/members", "/members/a?x=1&y=2", "/a%20b", "/search?q=%2F", "/ok?next=//x", "/caf%C3%A9", "/a:b", "/%zz", "/x#frag"],
+  "rejected": ["", "//evil.com", "///evil.com", "/\\evil.com", "/\\\\evil.com", "\\\\evil.com", "/a\\b", "/%2f%2fevil.com", "/%2F/evil.com", "/%5cevil.com", "/%5Cevil.com", "/%252f%252fevil.com", "/%25252f%25252fevil.com", "javascript:alert(1)", "JavaScript:alert(1)", "https://evil.com", "http:/evil.com", "evil.com", " /x", "\t/evil.com", "/\t/evil.com", "/\n/evil.com", "/\r/evil.com", "/%09/evil.com", "/%0a/evil.com", "/%00x", "/x\u0000", "/\u2028x", "/\u0085/x", "/%E2%80%A8x", "/%C2%85x", "/%E0%A4%A", "/%41%zz"]
+}

@@ -1,0 +1,143 @@
+{
+  "name": "@proveitonchain/tokenlock",
+  "version": "0.3.2",
+  "description": "Zero-trust access for the token era. An extra layer in front of your login, admin, or API. Middleware for Next.js and Express, a React sign-in button, and a tiny client for the TOKENLOCK API.",
+  "license": "MIT",
+  "author": "Prove It Onchain <gotproof@oplanbtc.com>",
+  "homepage": "https://github.com/pappyg45/proveitonchain-tokenlock#readme",
+  "keywords": [
+    "bitcoin",
+    "token-gate",
+    "tokenlock",
+    "nextjs",
+    "express",
+    "react",
+    "wallet",
+    "sign-in",
+    "bip322",
+    "self-verify"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./next": {
+      "import": {
+        "types": "./dist/next.d.ts",
+        "default": "./dist/next.js"
+      },
+      "require": {
+        "types": "./dist/next.d.cts",
+        "default": "./dist/next.cjs"
+      }
+    },
+    "./express": {
+      "import": {
+        "types": "./dist/express.d.ts",
+        "default": "./dist/express.js"
+      },
+      "require": {
+        "types": "./dist/express.d.cts",
+        "default": "./dist/express.cjs"
+      }
+    },
+    "./react": {
+      "import": {
+        "types": "./dist/react.d.ts",
+        "default": "./dist/react.js"
+      },
+      "require": {
+        "types": "./dist/react.d.cts",
+        "default": "./dist/react.cjs"
+      }
+    },
+    "./package.json": "./package.json",
+    "./self-verify": {
+      "import": {
+        "types": "./dist/self-verify.d.ts",
+        "default": "./dist/self-verify.js"
+      },
+      "require": {
+        "types": "./dist/self-verify.d.cts",
+        "default": "./dist/self-verify.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "examples",
+    "docs"
+  ],
+  "scripts": {
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsup && node scripts/use-client.mjs",
+    "typecheck": "tsc --noEmit",
+    "test:integration": "cd test/integration && npm install --no-audit --no-fund && node --test run.mjs",
+    "test": "node --test test/unit.test.mjs test/security.test.mjs test/review2.test.mjs test/self-verify.test.mjs test/self-verify-enterprise.test.mjs",
+    "test:e2e": "node test/e2e.mjs",
+    "prepack": "npm run build"
+  },
+  "peerDependencies": {
+    "next": ">=13.4",
+    "react": ">=17"
+  },
+  "peerDependenciesMeta": {
+    "next": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@noble/curves": "^2.4.0",
+    "@noble/hashes": "^2.4.0",
+    "@types/node": "^22.20.5",
+    "@types/react": "^19.3.0",
+    "next": "^15.5.29",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3"
+  },
+  "typesVersions": {
+    "*": {
+      "next": [
+        "./dist/next.d.ts"
+      ],
+      "express": [
+        "./dist/express.d.ts"
+      ],
+      "react": [
+        "./dist/react.d.ts"
+      ],
+      "self-verify": [
+        "./dist/self-verify.d.ts"
+      ]
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pappyg45/proveitonchain-tokenlock.git"
+  },
+  "bugs": {
+    "url": "https://github.com/pappyg45/proveitonchain-tokenlock/issues"
+  }
+}
