@@ -4,7 +4,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { schnorr } from '@noble/curves/secp256k1.js';
 import { verifyMessageSignature, decodeAddress, taggedHash } from './btcsig.js';
-import { canonicalPath } from '../core.js';
+import { canonicalPath, validateResource } from '../core.js';
 export { verifyMessageSignature, decodeAddress, _addr } from './btcsig.js';
 
 export const SPEC_VERSION = 1;
@@ -354,7 +354,10 @@ export function evaluate(policy: Policy, o: { address: string; held: string[] | 
   if (key.org_id) { const org = (policy.orgs || []).find((x) => x.id === key.org_id); if (!org || org.status !== 'approved') return no('org_not_approved'); }
   else if (policy.settings?.require_org) return no('org_required');
   if (o.held) { const ok = o.held.filter((a) => !revoked.includes(a) && (!key.assets?.length || key.assets.includes(a))); if (!ok.length) return no(o.held.length ? 'entitlement_revoked' : 'not_holder'); }
-  const r = o.resource;
+  // 0.4.3: a resource given here is validated with the same schema as every other entry point; a malformed one is
+  // refused (bad_resource / bad_path) instead of skipping the route rules. resource null/absent = identity only (low level).
+  let r: Resource | null = null;
+  if (o.resource != null) { try { r = validateResource(o.resource, 'evaluate'); } catch (e: any) { return no(e?.code === 'bad_path' ? 'bad_path' : 'bad_resource'); } if (!r) return no('bad_resource'); }
   if (r) {
     const perm: any = key.permissions || {}; const routes = perm.routes ?? ['*'], methods = perm.methods ?? ['*'], envs = perm.environments ?? [];
     if (!strList(routes) || !strList(methods) || !strList(envs)) return no('policy_invalid');
@@ -368,7 +371,7 @@ export function evaluate(policy: Policy, o: { address: string; held: string[] | 
 // ------------------------------------------------------------------ sign-in + local pass (spec §6)
 export interface SignInResult { valid: boolean; code: string; reason: string; address?: string; assets_held?: string[]; pass?: string; expires_at?: string; key_id?: string | null; correlation_id: string }
 const REASONS: Record<string, string> = {
-  ok: 'Signed in.', bad_pass: 'Not a valid pass.', route_not_allowed: 'This key is not allowed on this route.', method_not_allowed: 'This key is not allowed to use this method here.', environment_not_allowed: 'This key is not allowed in this environment.', bad_path: 'Not a valid path.', unknown_challenge: 'This sign-in request is unknown or was already used. Start again.', expired: 'This sign-in request expired. Start again.',
+  ok: 'Signed in.', bad_pass: 'Not a valid pass.', route_not_allowed: 'This key is not allowed on this route.', method_not_allowed: 'This key is not allowed to use this method here.', environment_not_allowed: 'This key is not allowed in this environment.', bad_path: 'Not a valid path.', bad_resource: 'Malformed authorization request: pass a valid { path, method } or { identityOnly: true }.', unknown_challenge: 'This sign-in request is unknown or was already used. Start again.', expired: 'This sign-in request expired. Start again.',
   bad_signature: 'The signature does not match this address and message.', bad_address: 'Not a Bitcoin address we support.', not_holder: 'This wallet does not hold the token.',
   lookup_failed: 'Could not read holdings right now. Try again in a minute.', lookup_disagreement: 'Holdings sources disagree. Try again in a minute.', name_required: 'Give the name you hold.',
   not_registered: 'This wallet is not a registered key for this site.', key_revoked: 'This key was revoked.', key_expired: 'This key has expired.', pending_approval: 'Waiting for the site admin to approve this wallet.',
@@ -424,8 +427,16 @@ const SCOPE = new Set(['route_not_allowed', 'method_not_allowed', 'environment_n
  * `identity_valid: true` on those answers means the pass itself (and, in token mode, the token) is still good.
  */
 function tokenModeIdentity(pol: Policy, p: any, now: number): boolean { return evaluate(pol, { address: p.sub, held: p.h, resource: null, now }).allowed; }
-export async function verifyLocalPass(token: string, o: { passSecret: string; policy?: PolicySource; resource?: Resource | null; now?: number }): Promise<{ valid: boolean; allowed: boolean; code: string; reason: string; identity_valid?: boolean; address?: string; assets_held?: string[]; expires_at?: string; key_id?: string | null }> {
+const LOCAL_PASS_KEYS = ['passSecret', 'policy', 'resource', 'identityOnly', 'now'];
+export async function verifyLocalPass(token: string, o: { passSecret: string; policy?: PolicySource; resource?: Resource | null; identityOnly?: true; now?: number }): Promise<{ valid: boolean; allowed: boolean; code: string; reason: string; identity_valid?: boolean; address?: string; assets_held?: string[]; expires_at?: string; key_id?: string | null }> {
   const no = (code: string, extra = {}) => ({ valid: SCOPE.has(code), allowed: false, code, reason: REASONS[code] || code, ...extra });
+  // 0.4.3: the authorization request is explicit. { identityOnly: true } (and no resource) is an identity-only check; a
+  // resource must pass the shared schema; anything else (no resource, unknown option, malformed resource) is refused.
+  if (!o || typeof o !== 'object') return no('bad_resource');
+  for (const k of Object.keys(o)) if (!LOCAL_PASS_KEYS.includes(k)) return no('bad_resource');
+  let req: Resource | null;
+  if ('identityOnly' in o) { if (o.identityOnly !== true || o.resource !== undefined) return no('bad_resource'); req = null; }
+  else { try { req = validateResource(o.resource, 'verifyLocalPass'); } catch (e: any) { return no(e?.code === 'bad_path' ? 'bad_path' : 'bad_resource'); } if (!req) return no('bad_resource'); }
   const m = /^tl3\.([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]{43})$/.exec(String(token || ''));
   if (!m) return no('bad_pass');
   const want = createHmac('sha256', o.passSecret).update('tl3.' + m[1]).digest();
@@ -437,14 +448,14 @@ export async function verifyLocalPass(token: string, o: { passSecret: string; po
   const base = { address: p.sub, assets_held: p.h, expires_at: iso(p.e), key_id: p.k ?? null };
   if (o.policy) {
     let pol: Policy; try { pol = await o.policy.get(); } catch (e: any) { return no(e?.code === 'policy_expired' || e?.code === 'policy_invalid' ? e.code : 'policy_unavailable', base); }
-    if (o.resource != null && pol.mode !== 'registered_keys') {
+    if (req != null && pol.mode !== 'registered_keys') {
       // Token-mode policy: no route rules exist, so a resource cannot be explicitly permitted (0.4.0).
       return { valid: false, allowed: false, identity_valid: tokenModeIdentity(pol, p, now), code: 'policy_required', reason: REASONS.policy_required, ...base };
     }
-    const ev = evaluate(pol, { address: p.sub, held: p.h, resource: o.resource || null, now });
+    const ev = evaluate(pol, { address: p.sub, held: p.h, resource: req, now });
     if (!ev.allowed) return no(ev.reason, base);
     if (pol.mode === 'registered_keys' && (ev.key?.id ?? null) !== (p.k ?? null)) return no('not_registered', base); // pass bound to its key
-  } else if (o.resource != null) {
+  } else if (req != null) {
     // 0.3.2 returned allowed: true here, which read as "route, method and environment were checked". They were not.
     return { valid: false, allowed: false, identity_valid: true, code: 'policy_required', reason: REASONS.policy_required, ...base };
   }

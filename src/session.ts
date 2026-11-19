@@ -18,7 +18,7 @@ export async function exchangePass(client: TokenlockClient, o: SessionOptions, i
   if (input.originHeader && input.originHeader !== self) return { status: 403, body: { ok: false, code: 'bad_origin', error: 'Wrong site.' } };
   const pass = typeof input.pass === 'string' ? input.pass : '';
   let info: PassInfo;
-  try { info = await client.verifyPass(pass); }
+  try { info = await client.verifyPass(pass, { identityOnly: true }); }
   catch (e: any) { return { status: 503, body: { ok: false, code: e?.code || 'unavailable', error: 'Could not check the pass right now. Try again.' } }; }
   if (!info.valid) return { status: 401, body: { ok: false, code: info.code || 'bad_pass', error: info.reason || 'Not signed in.' } };
   const cookie = passCookie(pass, info, { name: o.cookieName || DEFAULT_COOKIE, path: o.cookiePath, maxAgeSeconds: o.maxAgeSeconds, secure: wantsSecure(input.requestUrl) });
@@ -36,7 +36,7 @@ export function signInRedirect(signInPage: string, requestUrl: string, path: str
 }
 
 // ---------------------------------------------------------------- one decision for every adapter
-import { createMatcher, canonicalPath, checkClientOptions, isApiRequest, isUnavailable, denialStatus, FORBIDDEN_CODES, SECRET_KEY_RE, badConfig, type Matcher } from './core.js';
+import { ENVIRONMENT_RE, createMatcher, canonicalPath, checkClientOptions, isApiRequest, isUnavailable, denialStatus, FORBIDDEN_CODES, SECRET_KEY_RE, badConfig, type Matcher } from './core.js';
 
 export interface GuardOptions extends SessionOptions {
   /** Paths to lock: '/members/:path*', '/admin', RegExp or a function. Matched in canonical form, case-insensitive. */
@@ -93,6 +93,7 @@ export function validateGuardOptions(opts: Record<string, any>, adapter: string,
   if (typeof opts.signInPage !== 'string' || !opts.signInPage.trim()) throw badConfig(`${adapter}: signInPage must be your sign-in page path, e.g. '/signin'.`);
   for (const k of ['tokenOnly', 'caseSensitive']) if (opts[k] !== undefined && typeof opts[k] !== 'boolean') throw badConfig(`${adapter}: ${k} must be true or false.`);
   for (const k of ['environment', 'cookieName', 'cookiePath', 'afterSignOut', ...extraKeys.filter((x) => x !== 'maxAgeSeconds')]) if (opts[k] !== undefined && typeof opts[k] !== 'string') throw badConfig(`${adapter}: ${k} must be a string.`);
+  if (opts.environment !== undefined && !ENVIRONMENT_RE.test(opts.environment)) throw badConfig(`${adapter}: environment must be 1–30 letters, digits, '_', '.' or '-' (no spaces, not empty).`);
   if (opts.maxAgeSeconds !== undefined && !(typeof opts.maxAgeSeconds === 'number' && Number.isFinite(opts.maxAgeSeconds) && opts.maxAgeSeconds >= 0)) throw badConfig(`${adapter}: maxAgeSeconds must be a number of seconds.`);
   const sk = opts.secretKey ?? (typeof process !== 'undefined' && process.env ? process.env.TOKENLOCK_SECRET_KEY : undefined);
   if (typeof sk !== 'string' || !SECRET_KEY_RE.test(sk)) throw badConfig(`${adapter}: a secret key is required (sk_… from your dashboard): set TOKENLOCK_SECRET_KEY or pass { secretKey }.`);
@@ -117,13 +118,13 @@ export function createGuard(opts: GuardOptions, adapter = 'tokenlock', extraKeys
       if (!isLocked(canon) || isPublic(canon) || isSignIn(canon)) return { action: 'skip' };
       const api = isApiRequest(r.accept, canon, isApiPath);
       const method = (r.method || 'GET').toUpperCase();
-      const resource = { path: canon, method, environment: opts.environment };
+      const resource = { path: canon, method, ...(opts.environment !== undefined ? { environment: opts.environment } : {}) };
       let info: PassInfo | null = null;
       if (r.pass) {
         try {
           if (opts.tokenOnly) {
             // Identity + token check; if the site turns out to have a route policy (registered keys), enforce it.
-            info = await client.verifyPass(r.pass, undefined, { strict });
+            info = await client.verifyPass(r.pass, { identityOnly: true }, { strict });
             if (info.valid && info.access !== undefined) info = await client.verifyPass(r.pass, resource, { strict });
           } else {
             info = await client.verifyPass(r.pass, resource, { strict });

@@ -26,7 +26,7 @@ test('authz matrix: Node self-verify matches every expected allow/deny and code'
   const out = {};
   for (const c of M.cases) {
     const { pass, policy } = setup(c);
-    const v = await SV.verifyLocalPass(pass, { passSecret: SECRET, policy, resource: c.resource, now: NOW });
+    const v = await SV.verifyLocalPass(pass, { passSecret: SECRET, policy, ...(c.resource === null ? { identityOnly: true } : { resource: c.resource }), now: NOW });
     out[c.id] = norm(v);
     assert.deepEqual(out[c.id], c.expect, c.id);
   }
@@ -36,14 +36,14 @@ test('authz matrix: Node self-verify matches every expected allow/deny and code'
 test('policy_required answers say whether the pass itself is good (identity_valid), and never allow', async () => {
   for (const c of M.cases.filter((x) => x.expect.code === 'policy_required')) {
     const { pass, policy } = setup(c);
-    for (const resource of [c.resource, { path: '/x' }, { method: 'DELETE' }, { environment: 'production' }]) {
+    for (const resource of [c.resource, { path: '/x', method: 'GET' }, { path: '/x', method: 'DELETE' }, { path: '/x', method: 'GET', environment: 'production' }]) {
       const v = await SV.verifyLocalPass(pass, { passSecret: SECRET, policy, resource, now: NOW });
       assert.equal(v.valid, false); assert.equal(v.allowed, false); assert.equal(v.code, 'policy_required'); assert.equal(v.identity_valid, true);
       assert.equal(v.address, ADDR);
     }
   }
   const { pass } = setup({ policy: 'none', pass: 'forged' });
-  assert.equal((await SV.verifyLocalPass(pass, { passSecret: SECRET, resource: { path: '/x' }, now: NOW })).code, 'bad_pass', 'a forged pass is never reported as policy_required');
+  assert.equal((await SV.verifyLocalPass(pass, { passSecret: SECRET, resource: { path: '/x', method: 'GET' }, now: NOW })).code, 'bad_pass', 'a forged pass is never reported as policy_required');
 });
 
 test('Cloudflare worker 0.4.0: token-only site needs TOKENLOCK_TOKEN_ONLY=1; it cannot bypass a route policy', async () => {
@@ -69,7 +69,7 @@ test('Cloudflare worker 0.4.0: token-only site needs TOKENLOCK_TOKEN_ONLY=1; it 
     assert.equal(r.status, 403); assert.equal((await r.json()).code, 'policy_required', 'token-only site without TOKENLOCK_TOKEN_ONLY: denied');
     r = await get('/members/x', { ...env, TOKENLOCK_TOKEN_ONLY: '1' });
     assert.equal(r.status, 200); assert.equal(await r.text(), 'ORIGIN', 'with TOKENLOCK_TOKEN_ONLY=1: holder reaches the origin');
-    assert.ok(sent.every((s) => s.client === 'cf-worker/0.4.2'));
+    assert.ok(sent.every((s) => s.client === 'cf-worker/0.4.3'));
     registered = true;
     r = await get('/admin/x', { ...env, TOKENLOCK_TOKEN_ONLY: '1' });
     assert.equal(r.status, 403, 'registered keys: TOKENLOCK_TOKEN_ONLY cannot bypass the route policy'); assert.equal((await r.json()).code, 'route_not_allowed');

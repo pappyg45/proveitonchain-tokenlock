@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server.js';
-import { TokenlockClient, readPass, safeNext, DEFAULT_COOKIE, TokenlockError, type PassInfo, type ClientOptions, type Resource } from './core.js';
+import { TokenlockClient, readPass, safeNext, DEFAULT_COOKIE, TokenlockError, splitAuthOptions, validateResource, authorizeResource, checkClientOptions, RESOURCE_KEYS, type PassInfo, type ClientOptions, type Resource, type IdentityOnly } from './core.js';
 import { exchangePass, signOutCookie, createGuard, type GuardOptions, type SessionOptions } from './session.js';
 
 export * from './core.js';
@@ -75,11 +75,14 @@ export function tokenlockRoutes(opts: SessionOptions = {}) {
  * getPass does NOT check a route. To authorize an action (route, method, environment), pass { path, method } here or
  * use authorize(), which is strict and uncached.
  */
-export async function getPass(req?: { headers: any; cookies?: any }, opts: ClientOptions & { cookieName?: string } & Resource = {}): Promise<PassInfo | null> {
-  const { cookieName, path, method, environment, ...c } = opts;
-  const pass = await passFrom(req, cookieName || DEFAULT_COOKIE);
+export async function getPass(req?: { headers: any; cookies?: any }, opts: ClientOptions & { cookieName?: string } & (Resource | IdentityOnly | {}) = {}): Promise<PassInfo | null> {
+  const { client: c, request, extra } = splitAuthOptions(opts as any, 'getPass', ['cookieName']);
+  checkClientOptions(c, 'getPass');
+  const res = validateResource(request, 'getPass'); // 0.4.3: a route or { identityOnly: true }; never inferred
+  const pass = await passFrom(req, extra.cookieName || DEFAULT_COOKIE);
   if (!pass) return null;
-  const info = await new TokenlockClient(c).verifyPass(pass, path || method || environment ? { path, method, environment } : undefined);
+  const { strict, cache, ...rest } = c;
+  const info = await new TokenlockClient(rest).verifyPass(pass, res ?? { identityOnly: true }, { strict, cache });
   return info.valid ? info : null;
 }
 /**
@@ -87,11 +90,14 @@ export async function getPass(req?: { headers: any; cookies?: any }, opts: Clien
  * Returns the pass info when allowed, else { valid:false, allowed:false, code, reason }.
  */
 export async function authorize(req: { headers: any; cookies?: any } | undefined, resource: Resource, opts: ClientOptions & { cookieName?: string } = {}): Promise<PassInfo> {
-  const { cookieName, ...c } = opts;
-  if (!resource || !resource.path || !resource.method) throw new TokenlockError('authorize() needs { path, method }.', 0, 'resource_required');
-  const pass = await passFrom(req, cookieName || DEFAULT_COOKIE);
+  const { client: c, extra } = splitAuthOptions(opts as any, 'authorize', ['cookieName']);
+  checkClientOptions(c, 'authorize');
+  const res = authorizeResource(resource);
+  if (res === 'bad_path') return { valid: false, allowed: false, code: 'bad_path', reason: 'Not a valid path.' };
+  const pass = await passFrom(req, extra.cookieName || DEFAULT_COOKIE);
   if (!pass) return { valid: false, allowed: false, code: 'signin_required', reason: 'Sign in first.' };
-  return new TokenlockClient(c).verifyPass(pass, resource, { strict: true, cache: c.cache ?? false });
+  const { strict, cache, ...rest } = c;
+  return new TokenlockClient(rest).verifyPass(pass, res, { strict: true, cache: cache ?? false });
 }
 async function passFrom(req: { headers: any; cookies?: any } | undefined, name: string): Promise<string | null> {
   if (req) return readPass(req as any, name);
