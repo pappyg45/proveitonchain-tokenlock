@@ -45,3 +45,35 @@ test('policy_required answers say whether the pass itself is good (identity_vali
   const { pass } = setup({ policy: 'none', pass: 'forged' });
   assert.equal((await SV.verifyLocalPass(pass, { passSecret: SECRET, resource: { path: '/x' }, now: NOW })).code, 'bad_pass', 'a forged pass is never reported as policy_required');
 });
+
+test('Cloudflare worker 0.4.0: token-only site needs TOKENLOCK_TOKEN_ONLY=1; it cannot bypass a route policy', async () => {
+  const cf = await import('../examples/cloudflare-worker/worker.js');
+  const P = 'pp1.' + 'a'.repeat(40) + '.' + 'b'.repeat(43);
+  const realFetch = globalThis.fetch;
+  let registered = false; const sent = [];
+  const J = (o) => new Response(JSON.stringify(o), { headers: { 'content-type': 'application/json' } });
+  globalThis.fetch = async (input, init) => {
+    const u = String(input?.url || input);
+    if (!u.endsWith('/api/v1/gate/verify')) return new Response('ORIGIN');
+    const b = JSON.parse(init.body); sent.push({ ...b, client: init.headers['x-tokenlock-sdk'] });
+    const base = { address: ADDR, site_id: 's1', expires_at: new Date(Date.now() + 600e3).toISOString() };
+    const res = b.path ? { path: b.path, method: b.method, environment: b.environment ?? null } : undefined;
+    if (!registered) return J(res ? { valid: false, allowed: false, identity_valid: true, code: 'policy_required', reason: 'no policy', ...base, access: { mode: 'token', allowed: false, reason: 'policy_required' }, resource: res } : { valid: true, ...base });
+    const ok = !b.path || b.path.startsWith('/members');
+    return J({ valid: true, allowed: ok, ...(ok ? {} : { code: 'route_not_allowed' }), ...base, access: { mode: 'registered_keys', allowed: ok, reason: ok ? 'ok' : 'route_not_allowed' }, ...(res ? { resource: res } : {}) });
+  };
+  try {
+    const env = { TOKENLOCK_API: 'https://api.example', TOKENLOCK_SECRET_KEY: 'sk_' + 'x'.repeat(40), TOKENLOCK_PROTECT: '/members,/admin' };
+    const get = (p, e) => cf.default.fetch(new Request('https://site.example' + p, { headers: { accept: 'application/json', cookie: 'tokenlock_pass=' + P } }), e);
+    let r = await get('/members/x', env);
+    assert.equal(r.status, 403); assert.equal((await r.json()).code, 'policy_required', 'token-only site without TOKENLOCK_TOKEN_ONLY: denied');
+    r = await get('/members/x', { ...env, TOKENLOCK_TOKEN_ONLY: '1' });
+    assert.equal(r.status, 200); assert.equal(await r.text(), 'ORIGIN', 'with TOKENLOCK_TOKEN_ONLY=1: holder reaches the origin');
+    assert.ok(sent.every((s) => s.client === 'cf-worker/0.4.0'));
+    registered = true;
+    r = await get('/admin/x', { ...env, TOKENLOCK_TOKEN_ONLY: '1' });
+    assert.equal(r.status, 403, 'registered keys: TOKENLOCK_TOKEN_ONLY cannot bypass the route policy'); assert.equal((await r.json()).code, 'route_not_allowed');
+    r = await get('/members/x', { ...env, TOKENLOCK_TOKEN_ONLY: '1' });
+    assert.equal(r.status, 200);
+  } finally { globalThis.fetch = realFetch; }
+});
