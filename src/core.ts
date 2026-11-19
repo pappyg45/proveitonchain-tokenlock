@@ -5,7 +5,7 @@
  */
 export const DEFAULT_API = 'https://proveitonchain.com';
 export const DEFAULT_COOKIE = 'tokenlock_pass';
-export const VERSION = '0.3.2';
+export const VERSION = '0.3.3';
 
 export interface PassInfo {
   /** True only if the pass is real, unexpired, issued for your site and holds a token your site accepts. */
@@ -164,7 +164,13 @@ export class TokenlockClient {
   }
 
   /**
-   * Check a pass with your secret key. Never throws for a bad pass; throws TokenlockError only if the API can't be reached.
+   * Check a pass with your secret key. A bad, expired or out-of-scope pass is an answer (`valid: false` + `code`), not
+   * an exception. Throws `TokenlockError` when no answer could be obtained:
+   * - `code: 'no_secret_key'` (status 0): no secret key configured (option or `TOKENLOCK_SECRET_KEY`);
+   * - `code: 'no_fetch'` (status 0, from the constructor): no `fetch` in this runtime;
+   * - `code: 'network'` (status 0): the API could not be reached or timed out (`timeoutMs`, default 8000);
+   * - any non-2xx HTTP answer: `status` is the HTTP status (e.g. 400, 429 rate limited, 5xx) and `code` the API's code.
+   * `isUnavailable(e)` is true for network, timeout and 5xx errors. Fail closed on every error in protected routes.
    * Give `resource` ({ path, method, environment }) to have the route, method and environment checked too (sites with
    * registered keys); the answer then has `allowed` and `access`.
    */
@@ -302,7 +308,7 @@ export function clearCache(pass?: string) {
 let shared: TokenlockClient | null = null;
 const client = (o?: ClientOptions) => (o && Object.keys(o).length ? new TokenlockClient(o) : (shared ||= new TokenlockClient()));
 
-/** Check a pass. `verifyPass(pass, { secretKey, path, method, environment })` */
+/** Check a pass. `verifyPass(pass, { secretKey, path, method, environment })`. Throws `TokenlockError` (see TokenlockClient.verifyPass). */
 export function verifyPass(pass: string | null | undefined, opts: ClientOptions & Resource = {}): Promise<PassInfo> {
   const { path, method, environment, strict, cache: useCache, ...c } = opts;
   return client(c).verifyPass(pass, path || method || environment ? { path, method, environment } : undefined, { strict, cache: useCache });
