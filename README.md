@@ -22,9 +22,31 @@ NEXT_PUBLIC_TOKENLOCK_SITE_KEY=pk_…
 TOKENLOCK_SECRET_KEY=sk_…
 ```
 
-## Upgrading to 0.4.0 (breaking: explicit route authorization)
+## Upgrading to 0.4.2 (security hardening, breaking: removed options)
 
-Current release: **0.4.1** (documentation only; same code as 0.4.0). The behavior below is unchanged since 0.4.0.
+Current release: **0.4.2**, a security-hardening release with no new features. It removes every way to weaken the
+fail-closed behavior by configuration:
+
+| Removed | What happens now |
+| --- | --- |
+| `failOpen` (any value) | Configuration error (`TokenlockError`, `code: 'bad_config'`) when the middleware or client is created. A TOKENLOCK API that can't answer always denies protected requests (`503`) |
+| `checkResource` (any value) | Configuration error. The path, method and environment are always sent and checked. Token-only sites use `tokenOnly: true` |
+| `strict: false` (loose mode) | Configuration error, on the client, the middleware and per call. `strict: true` is still accepted; strict is always on |
+| Unknown middleware options (typos such as `tokenonly`), wrong types (e.g. `tokenOnly: 'false'`), a missing or malformed secret key, an empty `protect` | Configuration error at startup instead of being ignored |
+| Cloudflare worker: `TOKENLOCK_FAIL_OPEN`, `TOKENLOCK_CHECK_RESOURCE`, `TOKENLOCK_STRICT` set to anything; an invalid `TOKENLOCK_TOKEN_ONLY` / `TOKENLOCK_TIMEOUT_MS` / `TOKENLOCK_API`; a missing or non-`sk_` secret | `500 bad_config` on protected paths, nothing served |
+
+Also new in 0.4.2 (all deny, never allow): answers larger than 64 KiB, answers that are not a JSON object, answers with
+wrong types or missing fields, and contradictory answers (`valid: true` together with an error code, `error` or
+`identity_valid: false`; `allowed` disagreeing with `access.allowed`; an access `reason` other than `ok`; two resource
+echoes naming different resources; an identity answer naming a resource). Self-verify rejects malformed policies
+(`policy_invalid`) and holdings answers whose `held` is not a boolean. The Cloudflare worker has a fail-closed fetch
+timeout (`TOKENLOCK_TIMEOUT_MS`, default 8000): a slow or hung API is answered `503`. On the hosted side, a storage
+error reading a site's settings is an outage (`503`), never a token-only answer.
+
+What to do: remove `failOpen`, `checkResource` and `strict: false` from your configuration (and the Cloudflare
+variables above). Nothing else changes for a correct configuration.
+
+## Upgrading to 0.4.0 (breaking: explicit route authorization)
 
 0.4.0 fixes [security advisory 2026-11-18](https://proveitonchain.com/security/advisories/2026-11-18): **no route,
 method or environment is authorized unless a policy explicitly permits it.** Identity and token checks are unchanged.
@@ -44,17 +66,16 @@ What to do:
 - **Your own calls with a resource** on a token-only site: drop the resource (identity only), or turn on registered
   keys and grant the routes. Treat `policy_required` as a configuration error (the middleware answers 403).
 - **Self-verify**: pass a registered-keys `policy` whenever you pass a `resource`; use identity-only checks otherwise.
-- **PHP drop-in**: upgrade to PHP 0.4.0 or later (current 0.4.1) and set `'token_only' => true` (or `TOKENLOCK_TOKEN_ONLY=1`) on token-only sites.
+- **PHP drop-in**: upgrade to PHP 0.4.0 or later (current 0.4.2) and set `'token_only' => true` (or `TOKENLOCK_TOKEN_ONLY=1`) on token-only sites.
 - **Cloudflare worker example**: set `TOKENLOCK_TOKEN_ONLY = "1"` on token-only sites.
 
 The hosted API answers `policy_required` to every client version, SDK and PHP 0.2.x/0.3.x included (since 18 Nov 2026,
-9:03 PM PT), so token-only sites still on 0.2.x/0.3.x middleware deny protected paths until they upgrade (or set
-`checkResource: false` for identity-only checks).
+9:03 PM PT), so token-only sites still on 0.2.x/0.3.x middleware deny protected paths until they upgrade.
 
 ### Fail-closed guarantee
 
-No protected path, method or environment is authorized unless a policy explicitly permits it. With the default
-settings (strict on), each of these denies:
+No protected path, method or environment is authorized unless a policy explicitly permits it. Since 0.4.2 there is
+no setting that turns this off. Each of these denies:
 
 | Situation | Answer |
 | --- | --- |
@@ -65,13 +86,15 @@ settings (strict on), each of these denies:
 | Self-verify: policy bundle can't be fetched, is expired or has a bad signature | `policy_unavailable` / `policy_expired` |
 | Self-verify: holdings source fails or sources disagree | `lookup_failed` / `lookup_disagreement` |
 | Self-verify: a resource with no policy, or a token-mode policy | `policy_required` |
+| Self-verify: a malformed policy (wrong types, unknown mode or key status, unparseable dates, non-integer `seq`) | `policy_invalid` |
+| An invalid configuration (removed or unknown options, wrong types, missing or malformed secret key) | startup error `bad_config` (Cloudflare worker: `500 bad_config`) |
+| A malformed, oversized (> 64 KiB), non-JSON or contradictory API answer | denied (`bad_answer` → `503`, or the specific deny code) |
 
-What can weaken it, only by your explicit choice: `failOpen: true` (lets pass holders in unverified while the API is
-down) and `checkResource: false` (identity-only checks, routes not checked). Both turn strict mode off with a warning
-and are refused at startup with `strict: true`. On hosted registered-keys sites, a pass younger than
+Remaining limits (not configuration switches): on hosted registered-keys sites, a pass younger than
 2 × `recheck_holdings_s` keeps working during a holdings-source outage unless `require_fresh_holdings` is on (the route
-policy is still enforced). Self-verify code in versions you installed earlier (0.3.x) keeps its old behavior until you
-upgrade.
+policy is still enforced). A site switched between token-only and registered keys can take up to 30 s per server
+instance to be seen by the hosted API. Identity answers on token-only sites are cached up to 60 s unless `cache: false`.
+Self-verify code in versions you installed earlier keeps its old behavior until you upgrade.
 
 ## 2. Install
 
@@ -232,13 +255,15 @@ async function requireAccess(req, res, next) {
 | `afterSignOut` | `/` | |
 | `sessionPath`, `signOutPath` (Express) | `/api/tokenlock/session`, `/api/tokenlock/signout` | |
 | `environment` | none | Sent with each check, e.g. `'production'` |
-| `strict` | on | See Strict mode. `strict: true` with `failOpen` or `checkResource: false` throws at startup |
-| `checkResource` | `true` | Send path + method with each check |
-| `failOpen` | `false` | Let pass holders in unverified when the API is down. Turns strict off (with a warning) |
+| `strict` | on | Always on since 0.4.2. `strict: true` is accepted; `strict: false` throws `bad_config` |
+| `timeoutMs` | `8000` | 1–120000. A slow API denies protected requests with `503` |
 | `apiPaths` | none | Paths that always get JSON 401/403 (API mode) |
 | `caseSensitive` | `false` | `/ADMIN` is the same as `/admin` unless set |
 | `cache` | `true` | `false` asks the API on every request |
-| `tokenOnly` | `false` | 0.4.0. Token-only site: any holder may open every protected path (identity + token check). Without it, a site with no route policy answers `403 policy_required`. On a site with registered keys, routes are still enforced |
+| `tokenOnly` | `false` | 0.4.0. Token-only site: any holder may open every protected path (identity + token check). Without it, a site with no route policy answers `403 policy_required`. On a site with registered keys, routes are still enforced. Must be a boolean |
+
+Removed in 0.4.2 (passing them throws `bad_config`): `failOpen`, `checkResource`, `strict: false`. Unknown options are
+refused too, so a typo can't silently weaken protection.
 
 ### `<SignInWithBitcoin />` props
 
@@ -299,7 +324,7 @@ Next.js: keep `config.matcher` broad (the quickstart above, or leave it out). Ne
 
 ### Strict mode (default)
 
-An answer counts only if it is complete and says `allowed: true` for **exactly** the path, method and environment you asked about (the API echoes them back). Anything else (missing fields, an unknown access mode, a different resource, an expired pass) is a denial. Strict is on in the middleware and whenever you pass a resource to `verifyPass`. `strict: true` together with `failOpen: true` or `checkResource: false` throws when the middleware is created; setting either of those without `strict` turns strict off and logs a warning. When the API can't answer, strict mode denies protected requests with `503`.
+An answer counts only if it is complete, unambiguous and says `allowed: true` for **exactly** the path, method and environment you asked about (the API echoes them back). Anything else (missing fields, wrong types, an unknown access mode, a different resource, an expired pass, a contradiction such as `valid: true` with an error code, an answer over 64 KiB or not a JSON object) is a denial. Since 0.4.2 strict mode is the only mode, for identity checks too; `strict: false`, `failOpen` and `checkResource` were removed and throw `bad_config`. When the API can't answer, protected requests are denied with `503`.
 
 ### Revocation window
 
@@ -310,7 +335,6 @@ Three kinds of change reach your server at different speeds. Only admin changes 
 | Setup | How long the old access can still get in |
 | --- | --- |
 | **Hosted verification**, strict (default), registered keys | **0 s**: never cached; every protected request asks the API, which reads the key live |
-| **Hosted verification**, `strict: false`, registered keys | up to **5 s** per server process (the API's `cache_max_s`) |
 | **Hosted verification**, `cache: false`, registered keys | **0 s** for these admin changes (holdings changes still follow table 3) |
 | **Hosted verification**, token-only sites (no registered keys) | No keys to revoke (access controls are off). An existing pass stays good until it expires; good answers are cached in the SDK up to 60 s unless `cache: false` |
 | 0.1.x SDKs (hosted) | up to 60 s |
@@ -324,7 +348,6 @@ Three kinds of change reach your server at different speeds. Only admin changes 
 | Setup | When the transfer is noticed |
 | --- | --- |
 | **Hosted verification**, registered keys (strict or `cache: false`) | On the next hosted holdings re-check: up to `recheck_holdings_s` (**300 s** by default; 60–86400, or 0 = only at sign-in) after the last successful check. The key is then paused (`pending_approval`). `cache: false` only turns off the SDK's own cache; it does **not** shorten this hosted re-check interval |
-| **Hosted verification**, registered keys, `strict: false` | Same, plus up to 5 s of SDK cache |
 | **Hosted verification**, token-only sites | Holdings are checked at sign-in only. An existing pass stays good until it expires (15 min by default, at most 24 h); the next sign-in is refused |
 | **Self-verify** | Holdings are read at sign-in (`verifySignIn`). `verifyLocalPass` does not re-read them, so a pass stays good until it expires (`pass_ttl_s`, 900 s by default, capped by the key and agent TTLs). The policy bundle carries key status, not live holdings; the hosted re-check does not apply. Use short pass lifetimes, or re-check holdings yourself, if a transfer must cut access sooner |
 

@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.4.2 (security hardening, breaking: removed options)
+
+No new features. Removes every configuration that could weaken fail-closed behavior and adds denial checks for
+invalid configuration, stale or malformed policies, malformed backend answers and conflicting decisions. Regression
+tests were written first and failed against 0.4.1 (`test/hardening-042.test.mjs`: 26 of 30 failed on 0.4.1, 30 of 30
+pass on 0.4.2).
+
+- **Breaking, removed:** `failOpen` and `checkResource` (any value) and `strict: false` (loose mode) are configuration
+  errors (`TokenlockError`, `code: 'bad_config'`) on `TokenlockClient`, `verifyPass`, `getPass`, `authorize` and the
+  Express/Next middleware. The `x-tokenlock: fail-open` header is gone. The path, method and environment are always sent.
+- **Configuration validation:** the middleware refuses unknown options (typos), wrong types (`tokenOnly: 'false'` was
+  truthy in 0.4.1), a missing or malformed secret key, an empty `protect` and a missing `signInPage`. The client checks
+  `timeoutMs`, `cache`, `apiBase`, `fetch` and the secret key format.
+- **Answers:** capped at 64 KiB; a 2xx answer that is not a JSON object is `bad_answer` (502 → protected requests get
+  503). Identity checks are strict too. New denials: `valid: true` with a `code`, `error` or `identity_valid` other than
+  true; `allowed` present and not `true`; `access.reason` other than `ok`; non-ISO `expires_at`; `assets_held` not a list;
+  any resource echo that is not an object or names another resource (both echoes are checked); an identity answer that
+  names a resource. Registered-key answers are never cached.
+- **Self-verify:** `validatePolicy` (signed bundles and `localPolicy`): integer `seq` ≥ 0, ISO `issued_at`/`expires_at`,
+  `issued_at` at most 5 min in the future, `mode` `token`|`registered_keys`, list-typed `orgs`/`revoked_assets`/`keys`
+  and permissions, known key status, parseable key expiry. Malformed → `policy_invalid`. `evaluate` denies malformed
+  input; an unparseable key expiry is `key_expired`. The hosted holdings provider requires a boolean `held`;
+  `requireAgreement` refuses non-boolean answers.
+- **Cloudflare worker example:** `TOKENLOCK_FAIL_OPEN`, `TOKENLOCK_CHECK_RESOURCE`, `TOKENLOCK_STRICT` (any value), a
+  missing or non-`sk_` secret, invalid `TOKENLOCK_TOKEN_ONLY`/`TOKENLOCK_TIMEOUT_MS`/`TOKENLOCK_API` → `500 bad_config`
+  on protected paths and the session endpoint. Fail-closed fetch timeout (`TOKENLOCK_TIMEOUT_MS`, default 8000) → `503`.
+  Same answer checks as the SDK. Client header `cf-worker/0.4.2`.
+- **Hosted API (deployed with this release):** a storage error reading a site's settings is `503` and is not cached
+  (0.4.1 cached it as "no site", which with the Redis access state also missing produced a token-only answer for a
+  registered-keys site); access decisions use the site document just loaded for the secret key; malformed access state
+  or key records deny; the `TOKENLOCK_LEGACY_RESOURCE_COMPAT` emergency switch was removed.
+- PHP drop-in 0.4.2 ships the same changes.
+
 ## 0.4.1 (documentation only)
 
 No code changes from 0.4.0: same authorization logic, same tests. Only the version string (`VERSION`, client header
