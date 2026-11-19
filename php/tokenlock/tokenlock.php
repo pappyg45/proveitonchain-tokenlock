@@ -19,7 +19,7 @@
 if (defined('TOKENLOCK_PHP')) {
     return;
 }
-define('TOKENLOCK_PHP', '0.4.0');
+define('TOKENLOCK_PHP', '0.4.1');
 
 class TokenlockException extends Exception
 {

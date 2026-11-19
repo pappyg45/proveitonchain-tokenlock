@@ -10,6 +10,8 @@ Which tokens unlock the site is set in your [TOKENLOCK dashboard](https://provei
 
 ## Upgrading to 0.4.0 (breaking: explicit route authorization)
 
+Current release: **0.4.1** (documentation only; same code as 0.4.0). The behavior below is unchanged since 0.4.0.
+
 0.4.0 fixes [security advisory 2026-11-18](https://proveitonchain.com/security/advisories/2026-11-18): no page path,
 method or environment is authorized unless a policy explicitly permits it. Identity and token checks are unchanged.
 
@@ -28,6 +30,28 @@ To upgrade: replace the files in `tokenlock/` (keep your `config.php`), and add 
 `config.php` if any holder should open every locked page. Since 18 Nov 2026, 9:03 PM PT the hosted API answers
 `policy_required` to PHP 0.2.x/0.3.x too, so a token-only site still on those versions denies locked pages until it upgrades
 (or sets `'check_resource' => false` for identity-only checks).
+
+### Fail-closed guarantee
+
+No locked page, method or environment is authorized unless a policy explicitly permits it. With the default settings
+(strict on), each of these denies:
+
+| Situation | Answer |
+| --- | --- |
+| A page path with no applicable route policy (token-only site, no `'token_only'`) | `403 policy_required` |
+| PHP/SDK 0.2.x/0.3.x clients sending a page path to the hosted API on a token-only site | `policy_required` (hosted API, every client version) |
+| `'token_only' => true` (or `TOKENLOCK_TOKEN_ONLY=1`) on a site that has registered keys | the page path, method and environment are still checked against the key |
+| TOKENLOCK API unreachable, timing out or answering 5xx | `503`, nothing from your page is sent |
+| Self-verify: policy can't be loaded, is expired or has a bad signature | `policy_unavailable` / `policy_expired` |
+| Self-verify: holdings source fails | `lookup_failed` |
+| Self-verify: a page path with no policy, or a token-mode policy | `policy_required` |
+
+What can weaken it, only by your explicit choice: `'fail_open' => true` / `TOKENLOCK_FAIL_OPEN=1` (lets pass holders in
+unverified while the API is down) and `'check_resource' => false` (identity-only checks, page paths not checked). Both
+turn strict mode off with a logged warning, and `'strict' => true` with either is a configuration error. On hosted
+registered-keys sites, a pass younger than 2 × `recheck_holdings_s` keeps working during a holdings-source outage unless
+`require_fresh_holdings` is on (the route policy is still enforced). Copies of 0.3.x you installed earlier keep their old
+self-verify behavior until you replace the files.
 
 ## What you upload
 
