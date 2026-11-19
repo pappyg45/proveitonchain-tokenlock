@@ -22,9 +22,28 @@ NEXT_PUBLIC_TOKENLOCK_SITE_KEY=pk_…
 TOKENLOCK_SECRET_KEY=sk_…
 ```
 
+## Upgrading to 0.4.3 (security correction, breaking: explicit identity-only)
+
+Current release: **0.4.3**, a security correction with no new features. **0.4.2 is deprecated: upgrade.** In 0.4.2 a
+mistyped, unknown, empty, `null` or non-string resource field (e.g. `{ pth: '/admin' }`, `{ path: '' }`) was dropped
+and the call became an identity-only check. Since 0.4.3 every authorization call uses one strict schema:
+
+| You call | 0.4.2 | 0.4.3 |
+| --- | --- | --- |
+| `verifyPass(pass, { secretKey })` / `getPass(req)` with no resource | identity-only check | throws `bad_resource`: say `{ identityOnly: true }` |
+| `{ identityOnly: true }` (alone) | n/a | identity-only check (supported) |
+| Unknown field or option (`pth`, `route`, `identity_only`…) | dropped → identity-only | throws `bad_resource` |
+| `path` without `method`, or the reverse | partial check | throws `bad_resource` |
+| Empty, whitespace-only, padded, `null` or non-string `path`/`method`/`environment` | dropped / sliced | throws `bad_resource` |
+| Relative or non-canonical path (`admin`, `/a/../b`, `%2e%2e`, `%252e`) | `bad_path` or identity | `{ valid: false, code: 'bad_path' }` |
+| `authorize(req, …)` without `{ path, method }` | identity-only | throws `bad_resource` |
+
+Server-side: the hosted API applies the same schema to `/api/v1/gate/verify` (malformed → `bad_resource` /
+`bad_path`). Advisory: https://proveitonchain.com/security/advisories/2026-11-18#correction-043
+
 ## Upgrading to 0.4.2 (security hardening, breaking: removed options)
 
-Current release: **0.4.2**, a security-hardening release with no new features. It removes every way to weaken the
+0.4.2 was a security-hardening release with no new features (deprecated; superseded by 0.4.3). It removes every way to weaken the
 fail-closed behavior by configuration:
 
 | Removed | What happens now |
@@ -53,7 +72,7 @@ method or environment is authorized unless a policy explicitly permits it.** Ide
 
 | You call | 0.3.x | 0.4.0 |
 | --- | --- | --- |
-| `verifyPass(pass)` / `getPass(req)` with no resource (identity only) | allowed | allowed (unchanged) |
+| `verifyPass(pass, { identityOnly: true })` / `getPass(req, { identityOnly: true })` (identity only; explicit since 0.4.3) | allowed | allowed (unchanged) |
 | A resource (`path`, `method` or `environment`) on a **token-only** site (registered keys off) | `allowed: true`, nothing checked | `{ valid: false, allowed: false, code: 'policy_required', identity_valid: true }` |
 | A resource on a site with **registered keys** | checked against the key | checked against the key (unchanged) |
 | Self-verify `verifyLocalPass` with a resource and no `policy` (0.3.2 and earlier) or a token-mode policy | `allowed: true` | `policy_required` |
@@ -149,7 +168,7 @@ The button opens a wallet picker (Unisat, Xverse, Leather, Horizon and other bro
 import { getPass } from '@proveitonchain/tokenlock/next';
 
 export default async function Members() {
-  const pass = await getPass(); // null, or { address, assets_held, name, expires_at, … }
+  const pass = await getPass(undefined, { identityOnly: true }); // null, or { address, assets_held, name, expires_at, … }
   return <p>Signed in as {pass?.address}</p>;
 }
 ```
@@ -183,20 +202,20 @@ The Express middleware also serves `POST /api/tokenlock/session` and `/api/token
 ```ts
 import { verifyPass, getPass, createChallenge, TokenlockClient } from '@proveitonchain/tokenlock';
 
-const v = await verifyPass(pass, { secretKey: process.env.TOKENLOCK_SECRET_KEY });
+const v = await verifyPass(pass, { secretKey: process.env.TOKENLOCK_SECRET_KEY, identityOnly: true }); // identity only
 if (v.valid) { /* v.address, v.assets_held, v.site_id, v.expires_at */ }
 
-const visitor = await getPass(req);          // reads the tokenlock_pass cookie and checks it
+const visitor = await getPass(req, { identityOnly: true }); // reads the tokenlock_pass cookie and checks it
 const ch = await createChallenge({ siteKey: 'pk_…', origin: 'https://yoursite.com' }); // build your own wallet flow
 
 const client = new TokenlockClient({ secretKey, siteKey }); // low-level REST client
-await client.request('POST', '/api/v1/gate/verify', { pass });
+await client.request('POST', '/api/v1/gate/verify', { pass, identity_only: true });
 ```
 
 | Function | What it does |
 | --- | --- |
-| `verifyPass(pass, { secretKey })` | `{ valid, address, assets_held, site_id, expires_at }` or `{ valid: false, code }`. A bad, expired or out-of-scope pass is an answer, not an exception. Throws `TokenlockError` when there is no answer: missing configuration (`no_secret_key`; `no_fetch` on runtimes without `fetch`), a non-2xx HTTP response from the API (`status` = HTTP status, e.g. 429 or 5xx, `code` from the API), or a network error or timeout (`network`, status 0). See [Errors](#errors-tokenlockerror). |
-| `getPass(req, opts?)` | The verified pass from the request cookie, or `null`. **Identity only** unless you pass `{ path, method, environment }`. Works with Fetch `Request`, `NextRequest`, Express/Node `req`. |
+| `verifyPass(pass, { secretKey, path, method, environment? })` or `verifyPass(pass, { secretKey, identityOnly: true })` | `{ valid, address, assets_held, site_id, expires_at }` or `{ valid: false, code }`. A bad, expired or out-of-scope pass is an answer, not an exception. Throws `TokenlockError` when there is no answer: missing configuration (`no_secret_key`; `no_fetch` on runtimes without `fetch`), a non-2xx HTTP response from the API (`status` = HTTP status, e.g. 429 or 5xx, `code` from the API), or a network error or timeout (`network`, status 0). See [Errors](#errors-tokenlockerror). |
+| `getPass(req, opts?)` | The verified pass from the request cookie, or `null`. Pass `{ path, method, environment? }` or `{ identityOnly: true }` (required since 0.4.3; anything else throws `bad_resource`). Works with Fetch `Request`, `NextRequest`, Express/Node `req`. |
 | `authorize(req, { path, method, environment })` | Strict, uncached check for one action (agent APIs, sensitive operations). `{ valid: true, allowed: true, … }` or `{ valid: false, allowed: false, code, reason }`. |
 | `canonicalPath(path)` | The path used for matching (see Path rules), or `null` to reject. |
 | `resourcePath(path)` | The canonical path lowercased: what is sent to the API, cached and compared with the answer. |
@@ -262,8 +281,9 @@ async function requireAccess(req, res, next) {
 | `cache` | `true` | `false` asks the API on every request |
 | `tokenOnly` | `false` | 0.4.0. Token-only site: any holder may open every protected path (identity + token check). Without it, a site with no route policy answers `403 policy_required`. On a site with registered keys, routes are still enforced. Must be a boolean |
 
-Removed in 0.4.2 (passing them throws `bad_config`): `failOpen`, `checkResource`, `strict: false`. Unknown options are
-refused too, so a typo can't silently weaken protection.
+Removed in 0.4.2 (passing them throws `bad_config`): `failOpen`, `checkResource`, `strict: false`. Unknown middleware options are
+refused too (`bad_config`). Since 0.4.3 unknown options and authorization fields are refused on every call as well
+(`verifyPass`, `getPass`, `authorize`, `client.verifyPass`, `verifyLocalPass`: `bad_resource`), so a typo can't silently weaken protection.
 
 ### `<SignInWithBitcoin />` props
 
@@ -377,7 +397,7 @@ const c = await createChallenge({ site: 'https://shop.example', assets: ['CLUBTO
 // … the wallet signs c.message …
 const r = await verifySignIn({ challenge_id: c.challenge_id, address, signature }, cfg);
 if (r.valid) setCookie('tl_pass', r.pass);                              // HttpOnly, Secure
-const v = await verifyLocalPass(cookie, { passSecret: process.env.MY_PASS_SECRET });
+const v = await verifyLocalPass(cookie, { passSecret: process.env.MY_PASS_SECRET, identityOnly: true });
 ```
 
 ### Enterprise self-verify (registered keys, path, method, environment)
@@ -427,7 +447,7 @@ for health checks. Or use `localPolicy(...)` if you keep the policy yourself.
 
 **A `resource` needs a policy.** `verifyLocalPass(pass, { passSecret, resource })` without `policy` answers
 `{ valid: false, allowed: false, code: 'policy_required' }`: route, method and environment rules live in the policy, so
-they can't be checked without one (0.3.2 answered `allowed: true`). Leave out `resource` for an identity-only check.
+they can't be checked without one (0.3.2 answered `allowed: true`). For an identity-only check pass `identityOnly: true` instead of `resource` (explicit since 0.4.3; no resource and no `identityOnly` answers `bad_resource`).
 A token-mode policy (registered keys off) has no per-route rules either, so since 0.4.0 a `resource` with it also
 answers `policy_required` (0.3.3 and earlier: `allowed: true`). The answer includes `identity_valid: true` when the pass
 itself is good.

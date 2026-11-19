@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.4.3 (security correction, breaking: explicit identity-only)
+
+No new features. Corrects a fail-open found by the 0.4.2 production regression run: in 0.4.2 an unknown, mistyped,
+empty, `null` or non-string resource field (for example `{ pth: '/admin' }` or `{ path: '' }`) was dropped and the call
+became an identity-only check, which can answer `valid: true` for a protected resource. 0.4.2 is deprecated on npm.
+Regression tests were written first and failed against 0.4.2 (`test/correction-043.test.mjs`: 6 of 8 failed on 0.4.2;
+all pass on 0.4.3). Advisory: https://proveitonchain.com/security/advisories/2026-11-18#correction-043
+
+- **One strict schema** (`validateResource`) for every authorization entry point: `verifyPass`, `getPass`, `authorize`,
+  `TokenlockClient.verifyPass`, the Next.js helpers, the Express/Next middleware, the Cloudflare worker and
+  `verifyLocalPass`/`evaluate`. Allowed fields: `path`, `method`, `environment`, `identityOnly`.
+- **Refused (`TokenlockError` `code: 'bad_resource'`, before any network call):** unknown fields or options, a request
+  that is not a plain object, a path without a method or a method without a path, values that are not strings, empty,
+  whitespace-only or padded, `null`/`undefined` values, a method that is not 1–10 letters, an environment that is not
+  1–30 of `A-Z a-z 0-9 _ . -`. Values are never truncated. A relative path or one that fails the canonical path rules
+  answers `{ valid: false, code: 'bad_path' }`. A query string or fragment is dropped (path rules v1.1, unchanged).
+- **Breaking: identity-only is explicit.** `verifyPass(pass, { secretKey, identityOnly: true })`,
+  `getPass(req, { identityOnly: true })`, `client.verifyPass(pass, { identityOnly: true })`,
+  `verifyLocalPass(pass, { passSecret, identityOnly: true })`. Calling these with no resource now throws
+  `bad_resource` (self-verify answers `bad_resource`) instead of silently doing an identity check. `identityOnly` must
+  be exactly `true` and alone. `authorize()` always needs `{ path, method }`. On the wire an identity check sends
+  `identity_only: true`.
+- **Middleware / worker:** the resource is built from the request; an unset environment is omitted (never sent as
+  `null` or `''`); an invalid `environment` option or `TOKENLOCK_ENVIRONMENT` is `bad_config`. A request whose method
+  is not a plain HTTP method name is denied.
+- **Docs:** 0.4.2 said "unknown options are refused"; that held for the middleware only. Since 0.4.3 it holds for every
+  authorization call.
+
 ## 0.4.2 (security hardening, breaking: removed options)
 
 No new features. Removes every configuration that could weaken fail-closed behavior and adds denial checks for
