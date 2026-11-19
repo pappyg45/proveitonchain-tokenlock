@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "note": "Shared TOKENLOCK authorization matrix (advisory 2026-11-18). Every integration must give the same allow/deny and code. policy: 'registered_keys' = a route policy with one key (routes ['/api/*'], methods ['GET']); 'token' = a policy/site with no route rules (registered keys off); 'none' = no policy at all (self-verify) / token-only site (hosted). allow = valid === true && allowed !== false; code is 'ok' when allowed.",
+  "key": { "routes": ["/api/*"], "methods": ["GET"] },
+  "cases": [
+    { "id": "identity_only", "policy": "registered_keys", "key": "active", "pass": "valid", "resource": null, "expect": { "allow": true, "code": "ok" } },
+    { "id": "identity_only_no_policy", "policy": "none", "pass": "valid", "resource": null, "expect": { "allow": true, "code": "ok" } },
+    { "id": "resource_without_policy", "policy": "none", "pass": "valid", "resource": { "path": "/api/data", "method": "GET" }, "expect": { "allow": false, "code": "policy_required" } },
+    { "id": "resource_allowed_by_policy", "policy": "registered_keys", "key": "active", "pass": "valid", "resource": { "path": "/api/data", "method": "GET" }, "expect": { "allow": true, "code": "ok" } },
+    { "id": "resource_route_denied", "policy": "registered_keys", "key": "active", "pass": "valid", "resource": { "path": "/admin", "method": "GET" }, "expect": { "allow": false, "code": "route_not_allowed" } },
+    { "id": "resource_method_denied", "policy": "registered_keys", "key": "active", "pass": "valid", "resource": { "path": "/api/data", "method": "POST" }, "expect": { "allow": false, "code": "method_not_allowed" } },
+    { "id": "token_only_with_resource", "policy": "token", "pass": "valid", "resource": { "path": "/api/data", "method": "GET" }, "expect": { "allow": false, "code": "policy_required" } },
+    { "id": "token_only_identity", "policy": "token", "pass": "valid", "resource": null, "expect": { "allow": true, "code": "ok" } },
+    { "id": "revoked_key", "policy": "registered_keys", "key": "revoked", "pass": "valid", "resource": { "path": "/api/data", "method": "GET" }, "expect": { "allow": false, "code": "key_revoked" } },
+    { "id": "expired_pass", "policy": "registered_keys", "key": "active", "pass": "expired", "resource": { "path": "/api/data", "method": "GET" }, "expect": { "allow": false, "code": "expired" } },
+    { "id": "forged_pass", "policy": "registered_keys", "key": "active", "pass": "forged", "resource": { "path": "/api/data", "method": "GET" }, "expect": { "allow": false, "code": "bad_pass" } }
+  ]
+}

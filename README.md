@@ -22,6 +22,33 @@ NEXT_PUBLIC_TOKENLOCK_SITE_KEY=pk_…
 TOKENLOCK_SECRET_KEY=sk_…
 ```
 
+## Upgrading to 0.4.0 (breaking: explicit route authorization)
+
+0.4.0 fixes [security advisory 2026-11-18](https://proveitonchain.com/security/advisories/2026-11-18): **no route,
+method or environment is authorized unless a policy explicitly permits it.** Identity and token checks are unchanged.
+
+| You call | 0.3.x | 0.4.0 |
+| --- | --- | --- |
+| `verifyPass(pass)` / `getPass(req)` with no resource (identity only) | allowed | allowed (unchanged) |
+| A resource (`path`, `method` or `environment`) on a **token-only** site (registered keys off) | `allowed: true`, nothing checked | `{ valid: false, allowed: false, code: 'policy_required', identity_valid: true }` |
+| A resource on a site with **registered keys** | checked against the key | checked against the key (unchanged) |
+| Self-verify `verifyLocalPass` with a resource and no `policy` (0.3.2 and earlier) or a token-mode policy | `allowed: true` | `policy_required` |
+| Next/Express middleware on a token-only site | every holder let in | **`403 policy_required`** unless you set `tokenOnly: true` |
+
+What to do:
+- **Token-only site using the middleware** (any holder may open every protected path): add `tokenOnly: true`. The
+  middleware then checks identity and token only. If the site later turns on registered keys, every request is
+  still checked against the key's routes (`tokenOnly` can't bypass a route policy).
+- **Your own calls with a resource** on a token-only site: drop the resource (identity only), or turn on registered
+  keys and grant the routes. Treat `policy_required` as a configuration error (the middleware answers 403).
+- **Self-verify**: pass a registered-keys `policy` whenever you pass a `resource`; use identity-only checks otherwise.
+- **PHP drop-in**: upgrade to PHP 0.4.0 and set `'token_only' => true` (or `TOKENLOCK_TOKEN_ONLY=1`) on token-only sites.
+- **Cloudflare worker example**: set `TOKENLOCK_TOKEN_ONLY = "1"` on token-only sites.
+
+The hosted API answers `policy_required` to 0.4.0 clients and to direct API calls. SDK 0.2.x/0.3.x and PHP 0.2.x/0.3.x
+clients still get the old `allowed: true` answer, now marked `policy: 'none'` with a `warning`, so existing token-only
+sites keep working until they upgrade; those versions remain affected.
+
 ## 2. Install
 
 ```bash
@@ -38,6 +65,7 @@ import { tokenlock } from '@proveitonchain/tokenlock/next';
 export default tokenlock({
   protect: ['/members/:path*'], // TOKENLOCK decides which paths are protected (canonical, case-insensitive)
   signInPage: '/signin',
+  tokenOnly: true, // any holder may open every protected path (no registered keys). Leave out to require route rules.
 });
 
 // Keep this broad. Next's own matcher is case-sensitive and would skip /MEMBERS
@@ -88,7 +116,7 @@ import express from 'express';
 import { tokenlock } from '@proveitonchain/tokenlock/express';
 
 const app = express();
-app.use(tokenlock({ protect: ['/members/:path*'], signInPage: '/signin' }));
+app.use(tokenlock({ protect: ['/members/:path*'], signInPage: '/signin', tokenOnly: true }));
 app.get('/members', (req, res) => res.send(`Hi ${req.tokenlock.address}`));
 ```
 
@@ -186,6 +214,7 @@ async function requireAccess(req, res, next) {
 | `apiPaths` | none | Paths that always get JSON 401/403 (API mode) |
 | `caseSensitive` | `false` | `/ADMIN` is the same as `/admin` unless set |
 | `cache` | `true` | `false` asks the API on every request |
+| `tokenOnly` | `false` | 0.4.0. Token-only site: any holder may open every protected path (identity + token check). Without it, a site with no route policy answers `403 policy_required`. On a site with registered keys, routes are still enforced |
 
 ### `<SignInWithBitcoin />` props
 
@@ -215,7 +244,7 @@ MIT © Prove It Onchain
 
 ## Enterprise access controls (0.3.0)
 
-Sites with **registered keys** turned on (Business, Enterprise, or a pilot) check every request against the key's routes, methods, environment and expiry. In **strict** mode (the 0.3.0 default) the SDK never caches registered-key answers, so an admin revoke or permission change is visible on the next request. A token transfer is noticed on the next hosted holdings re-check (at most `recheck_holdings_s`, 300 seconds by default), not immediately, even with `cache: false`. See [Revocation window](#revocation-window). Organizations are optional unless the site turns on `require_org`. The same site secret verifies passes and manages access, organizations and keys; separate credentials are planned, not shipped. Nothing changes for token-only sites. Full docs: https://proveitonchain.com/docs/enterprise
+Sites with **registered keys** turned on (Business, Enterprise, or a pilot) check every request against the key's routes, methods, environment and expiry. In **strict** mode (the 0.3.0 default) the SDK never caches registered-key answers, so an admin revoke or permission change is visible on the next request. A token transfer is noticed on the next hosted holdings re-check (at most `recheck_holdings_s`, 300 seconds by default), not immediately, even with `cache: false`. See [Revocation window](#revocation-window). Organizations are optional unless the site turns on `require_org`. The same site secret verifies passes and manages access, organizations and keys; separate credentials are planned, not shipped. Token-only sites (registered keys off) have no route rules: since 0.4.0 a check that names a path, method or environment answers `policy_required`; use identity-only checks or the middleware's `tokenOnly: true`. Full docs: https://proveitonchain.com/docs/enterprise
 
 ```js
 const info = await verifyPass(pass, { secretKey, path: '/api/partner/prices', method: 'GET', environment: 'production' });
@@ -352,7 +381,9 @@ for health checks. Or use `localPolicy(...)` if you keep the policy yourself.
 **A `resource` needs a policy.** `verifyLocalPass(pass, { passSecret, resource })` without `policy` answers
 `{ valid: false, allowed: false, code: 'policy_required' }`: route, method and environment rules live in the policy, so
 they can't be checked without one (0.3.2 answered `allowed: true`). Leave out `resource` for an identity-only check.
-With a token-mode policy (registered keys off) there are no per-route rules, so `allowed` covers the token and policy only.
+A token-mode policy (registered keys off) has no per-route rules either, so since 0.4.0 a `resource` with it also
+answers `policy_required` (0.3.3 and earlier: `allowed: true`). The answer includes `identity_valid: true` when the pass
+itself is good.
 
 | Mode | You still trust |
 |---|---|

@@ -7,7 +7,7 @@ const PROTECT = ['/members']; // prefixes: '/members' locks /members and everyth
 
 const API_PATHS = ['/members/api']; // always JSON 401/403 here; Accept: application/json also gets JSON
 const SIGN_IN = '/signin';
-const FORBIDDEN = ['route_not_allowed', 'method_not_allowed', 'environment_not_allowed', 'bad_path', 'resource_mismatch'];
+const FORBIDDEN = ['route_not_allowed', 'method_not_allowed', 'environment_not_allowed', 'bad_path', 'resource_mismatch', 'policy_required'];
 const DENIED = [...FORBIDDEN, 'key_revoked', 'key_expired', 'pending_approval', 'not_registered', 'org_not_approved', 'org_required', 'entitlement_revoked', 'not_allowed', 'lookup_failed'];
 
 // TOKENLOCK path rules v1.1 (same as canonicalPath() in the SDK and the PHP drop-in). null = reject with 400.
@@ -37,7 +37,7 @@ const rawPath = (u) => (String(u).match(/^[a-z][a-z0-9+.-]*:\/\/[^/?#]*([^?#]*)/
  */
 export async function verify(pass, env, resource) {
   if (!pass || !/^pp1\.[\w-]+\.[\w-]+$/.test(pass) || pass.length > 4000) return { ok: false, code: 'bad_pass' };
-  const r = await fetch((env.TOKENLOCK_API || 'https://proveitonchain.com') + '/api/v1/gate/verify', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + env.TOKENLOCK_SECRET_KEY, 'x-tokenlock-sdk': 'cf-worker/0.3.0' }, body: JSON.stringify({ pass, ...(resource || {}) }) });
+  const r = await fetch((env.TOKENLOCK_API || 'https://proveitonchain.com') + '/api/v1/gate/verify', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + env.TOKENLOCK_SECRET_KEY, 'x-tokenlock-sdk': 'cf-worker/0.4.0' }, body: JSON.stringify({ pass, ...(resource || {}) }) });
   if (r.status >= 500) throw new Error('tokenlock_unavailable');
   const v = await r.json().catch(() => null);
   return { ...strictCheck(v, resource), v };
@@ -51,7 +51,9 @@ export function strictCheck(v, resource) {
   if (!(Date.parse(v.expires_at || '') > Date.now())) return no('expired');
   if (a !== undefined && (!a || a.mode !== 'registered_keys' || a.allowed !== true)) return no((a && a.reason) || 'not_allowed');
   if (resource) {
-    if (v.allowed !== true) return no((a && a.reason) || 'not_allowed');
+    // 0.4.0: only a route policy (registered keys) can permit a resource; a valid answer without one is policy_required.
+    if (a === undefined) return { ok: false, code: 'policy_required' };
+    if (v.allowed !== true) return no((a && a.reason && a.reason !== 'ok' && a.reason) || 'not_allowed');
     const e = v.resource || (a && a.resource);
     if (!e) return no('incomplete_answer');
     const ep = typeof e.path === 'string' ? e.path.toLowerCase() : e.path ?? null;
@@ -107,7 +109,12 @@ export default {
     const resource = { path: path.toLowerCase(), method: req.method.toUpperCase(), environment: env.TOKENLOCK_ENVIRONMENT || null };
     let r = { ok: false, code: 'signin_required' };
     if (pass) {
-      try { r = await verify(pass, env, resource); }
+      try {
+        // TOKENLOCK_TOKEN_ONLY=1: every token holder may open the protected paths (token-only site). Check identity and
+        // token; if the site has registered keys after all, enforce its route policy.
+        if (env.TOKENLOCK_TOKEN_ONLY === '1') { r = await verify(pass, env); if (r.ok && r.v.access !== undefined) r = await verify(pass, env, resource); }
+        else r = await verify(pass, env, resource);
+      }
       catch { return json({ error: 'Could not check your sign-in right now. Try again in a moment.', code: 'tokenlock_unavailable', reason: 'The verification service did not answer; protected access is denied until it does.' }, 503, { 'retry-after': '15' }); }
     }
     if (r.ok) return fetch(req);

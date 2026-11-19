@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.4.0 (security, breaking: explicit route authorization)
+
+Fixes [security advisory 2026-11-18](https://proveitonchain.com/security/advisories/2026-11-18). No route, method or
+environment is authorized unless a policy explicitly permits it, in the hosted client, the middleware, self-verify and
+the Cloudflare worker example. Identity-only checks are unchanged. See "Upgrading to 0.4.0" in the README.
+
+- **Hosted verification:** a resource on a token-only site (no registered keys, so no route policy) now answers
+  `{ valid: false, allowed: false, code: 'policy_required', identity_valid: true }`. 0.3.x accepted the API's
+  `allowed: true` answer, so `verifyPass(pass, { path })`, `getPass(req, { path })` and `authorize(...)` reported a route
+  as authorized when nothing had checked it. The SDK enforces this itself (strict and loose), and the hosted API now
+  answers the same way to 0.4.0 clients and direct calls.
+- **Middleware (Next, Express):** new `tokenOnly` option. **Breaking:** without it, a token-only site answers
+  `403 policy_required` on protected paths (logged once). With `tokenOnly: true` the middleware checks identity and
+  token; if the site has registered keys it still checks the route.
+- **Self-verify:** a token-mode policy with a `resource` answers `policy_required` (0.3.3 and earlier: `allowed: true`).
+  Results carry `identity_valid`.
+- **Cloudflare worker example:** same rules; `TOKENLOCK_TOKEN_ONLY = "1"` for token-only sites. Client header `cf-worker/0.4.0`.
+- Strict checks no longer report `code: 'ok'` on an answer with `allowed: false` (now `not_allowed`).
+- Tests: shared authorization matrix `test/fixtures/authz-matrix.json` (11 cases), run by Node self-verify,
+  PHP self-verify, and the hosted API through the raw API, this SDK's client and the PHP client.
+
 ## 0.3.3 (fixes from external review)
 
 - **Self-verify: a `resource` now requires a `policy`.** `verifyLocalPass(pass, { passSecret, resource })` with no `policy` returned `allowed: true` in 0.3.2, which could be read as "route, method and environment were checked". It now returns `{ valid: false, allowed: false, code: 'policy_required' }` (a configuration error, never an allow). Identity-only checks (no `resource`) still work without a policy.

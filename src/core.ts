@@ -5,7 +5,7 @@
  */
 export const DEFAULT_API = 'https://proveitonchain.com';
 export const DEFAULT_COOKIE = 'tokenlock_pass';
-export const VERSION = '0.3.3';
+export const VERSION = '0.4.0';
 
 export interface PassInfo {
   /** True only if the pass is real, unexpired, issued for your site and holds a token your site accepts. */
@@ -25,6 +25,8 @@ export interface PassInfo {
   expires_at?: string;
   /** Present when you passed a resource (path/method/environment) or the site uses registered keys. */
   allowed?: boolean;
+  /** On a `policy_required` denial: true when the pass itself (identity and token) is good but no route policy applies. */
+  identity_valid?: boolean;
   /** The sign-in request's id; the same id appears in your decision log. */
   correlation_id?: string | null;
   /** Do not cache this answer longer than this many seconds (registered keys: revocation is live). */
@@ -246,8 +248,15 @@ function cleanResource(r?: Resource): Resource | null {
   if (typeof r.environment === 'string' && r.environment) out.environment = r.environment.slice(0, 30);
   return Object.keys(out).length ? out : null;
 }
+/** 0.4.0: a resource is granted only by a route policy (registered keys). A valid answer with no access block means none applied. */
+function noPolicy(info: PassInfo): PassInfo {
+  return { ...info, valid: false, allowed: false, identity_valid: true, code: 'policy_required', reason: POLICY_REQUIRED_REASON };
+}
+export const POLICY_REQUIRED_REASON = 'No route policy applies (registered keys are off), so this path, method or environment cannot be authorized. Check identity only, or turn on registered keys and grant the route. Token-only sites using the middleware: set tokenOnly: true.';
 function looseCheck(info: PassInfo, res: Resource | null = null): PassInfo {
   // The server checks the site; double-check the answer is well-formed before trusting it.
+  if (res && info && info.valid === true && info.access === undefined) return noPolicy(info);
+  if (info && info.valid === true && info.expires_at && !(Date.parse(info.expires_at) > Date.now())) return { ...info, valid: false, code: 'expired' };
   const ok = !!(info && info.valid === true && info.site_id && info.address && info.allowed !== false && info.access?.allowed !== false);
   if (!ok) return { ...info, valid: false, code: info?.code || info?.access?.reason || 'bad_pass' };
   // When the answer echoes a resource it must be this request's resource (compared in the same lowercased form).
@@ -274,11 +283,12 @@ function strictCheck(info: PassInfo, res: Resource | null): PassInfo {
   if (info.valid !== true) return deny(info.code || info.access?.reason || 'bad_pass');
   if (typeof info.address !== 'string' || !info.address || typeof info.site_id !== 'string' || !info.site_id) return deny('incomplete_answer');
   const exp = Date.parse(info.expires_at || ''); if (!(exp > Date.now())) return deny('expired');
+  if (res && info.access === undefined) return noPolicy(info);
   if (info.access !== undefined) {
     if (!info.access || !KNOWN_MODES.includes(info.access.mode) || info.access.allowed !== true) return deny(info.access?.reason || 'not_allowed');
   }
   if (res) {
-    if (info.allowed !== true) return deny(info.access?.reason || 'not_allowed');
+    if (info.allowed !== true) return deny(info.access?.reason && info.access.reason !== 'ok' ? info.access.reason : 'not_allowed');
     const e: any = (info as any).resource || info.access?.resource;
     if (!e) return deny('incomplete_answer');
     if (!sameResource(res, e)) return deny('resource_mismatch');
@@ -318,7 +328,7 @@ export function isUnavailable(e: unknown): boolean {
   return e instanceof TokenlockError && (e.status === 0 || e.status >= 500) && e.code !== 'no_secret_key';
 }
 /** Deny reasons that a new sign-in can't fix: answer 403 instead of sending the visitor to sign in again. */
-export const FORBIDDEN_CODES = ['route_not_allowed', 'method_not_allowed', 'environment_not_allowed', 'bad_path', 'resource_mismatch'];
+export const FORBIDDEN_CODES = ['route_not_allowed', 'method_not_allowed', 'environment_not_allowed', 'bad_path', 'resource_mismatch', 'policy_required'];
 /** Deny reasons that mean "signed in, but this key/token may not do this" (API mode answers 403, not 401). */
 export const DENIED_CODES = [...FORBIDDEN_CODES, 'key_revoked', 'key_expired', 'pending_approval', 'not_registered', 'org_not_approved', 'org_required', 'entitlement_revoked', 'not_allowed', 'lookup_failed'];
 /** HTTP status for a denial in API mode: 401 = no/invalid/expired pass (sign in), 403 = signed in but not allowed. */
