@@ -42,7 +42,7 @@ const redirect = (res: Res, status: number, to: string) => { res.statusCode = st
  * Locked requests get req.tokenlock = { address, assets_held, … }.
  */
 export function tokenlock(opts: TokenlockExpressOptions) {
-  const guard = createGuard(opts, 'tokenlock (express)'); // throws at config time for unsafe strict-mode options
+  const guard = createGuard(opts, 'tokenlock (express)', ['sessionPath', 'signOutPath', 'publicOrigin']); // throws at config time (bad_config) for invalid options
   const sessionPath = opts.sessionPath || '/api/tokenlock/session';
   const signOutPath = opts.signOutPath || '/api/tokenlock/signout';
 
@@ -70,7 +70,6 @@ export function tokenlock(opts: TokenlockExpressOptions) {
       if (d.action === 'skip') return next();
       if (d.action === 'allow') {
         req.tokenlock = d.info;
-        if (d.failOpen) res.setHeader('x-tokenlock', 'fail-open');
         return next();
       }
       if (d.clearCookie) addCookie(res, signOutCookie(opts, url));
