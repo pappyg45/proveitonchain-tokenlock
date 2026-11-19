@@ -1,6 +1,6 @@
 # TOKENLOCK self-verify, spec v1
 
-Status: preview (SDK 0.4.1, self-verify since 0.3.0; PHP drop-in 0.4.1; same behavior as 0.4.0). Enterprise. Web version: https://proveitonchain.com/docs/self-verify
+Status: preview (SDK 0.4.2, self-verify since 0.3.0; PHP drop-in 0.4.2; 0.4.2 adds policy validation: malformed policies are `policy_invalid`). Enterprise. Web version: https://proveitonchain.com/docs/self-verify
 
 Self-verify lets **your server** run "Sign in with your Token" from start to finish. You issue the challenge and keep
 the nonce. You check the wallet signature locally, and you read holdings from a source you pick. For the sign-in itself,
