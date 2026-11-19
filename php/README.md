@@ -8,9 +8,29 @@ This drop-in works on PHP 7.4 or newer (shared hosting and cPanel are fine). It 
 
 Which tokens unlock the site is set in your [TOKENLOCK dashboard](https://proveitonchain.com/tokenlock/dashboard), not in this code.
 
+## Upgrading to 0.4.3 (security correction, breaking: explicit identity_only)
+
+Current release: **0.4.3**, a security correction with no new features. **Upgrade from 0.4.2.** In 0.4.2 a mistyped,
+unknown, empty, `null` or non-string resource key (e.g. `array('pth' => '/admin')`, `array('path' => '')`) was dropped
+and `tokenlock_verify_pass()` / `tokenlock_sv_verify_local_pass()` did an identity-only check instead. Since 0.4.3:
+
+- One strict schema for `tokenlock_verify_pass()`, `tokenlock_require()` / `tokenlock_protect()` / the early block
+  (resource built from the request) and self-verify (`tokenlock_sv_evaluate()`, `tokenlock_sv_verify_local_pass()`).
+  Allowed keys: `path`, `method`, `environment`, `identity_only`.
+- Unknown keys, a path without a method (or the reverse), non-string, empty, whitespace-only, padded or `null` values,
+  a method that is not 1–10 letters, an environment that is not 1–30 of `A-Z a-z 0-9 _ . -`: `TokenlockException`
+  `bad_resource` (HTTP 400) from `tokenlock_verify_pass()`; `bad_resource` from self-verify. Never truncated, never
+  identity-only. Relative or non-canonical paths answer `bad_path`. Unknown `$opts` keys are `bad_config`.
+- **Breaking:** identity-only is explicit: `tokenlock_verify_pass($pass, array('identity_only' => true))`,
+  `tokenlock_sv_verify_local_pass($pass, array('pass_secret' => …, 'identity_only' => true))`. A call with no resource
+  is `bad_resource`. The hosted API applies the same schema.
+- `'environment'` in config must match the same format (`''` = none); invalid is `bad_config`.
+
+Advisory: https://proveitonchain.com/security/advisories/2026-11-18#correction-043
+
 ## Upgrading to 0.4.2 (security hardening, breaking: removed options)
 
-Current release: **0.4.2**, a security-hardening release with no new features.
+0.4.2 was a security-hardening release with no new features (superseded by 0.4.3).
 
 - **Removed:** `'fail_open'` and `'check_resource'` (any value, and `TOKENLOCK_FAIL_OPEN` / `TOKENLOCK_CHECK_RESOURCE`)
   and `'strict' => false` (also `TOKENLOCK_STRICT=0` and `array('strict' => false)` per call). Each is a configuration
@@ -276,7 +296,7 @@ $holdings = tokenlock_sv_require_agreement(array(tokenlock_sv_tokenscan_provider
 $c = tokenlock_sv_create_challenge(array('site' => 'https://shop.example', 'assets' => array('CLUBTOKEN'), 'store' => $store));
 // … the wallet signs $c['message'] …
 $r = tokenlock_sv_verify_sign_in($_POST, array('store' => $store, 'holdings' => $holdings, 'pass_secret' => getenv('MY_PASS_SECRET')));
-$v = tokenlock_sv_verify_local_pass($_COOKIE['tl_pass'] ?? '', array('pass_secret' => getenv('MY_PASS_SECRET')));
+$v = tokenlock_sv_verify_local_pass($_COOKIE['tl_pass'] ?? '', array('pass_secret' => getenv('MY_PASS_SECRET'), 'identity_only' => true));
 ```
 
 To check registered keys offline, use `tokenlock_sv_signed_policy(array('site_id' => …, 'secret_key' => …, 'public_keys' => array($kid => $key), 'cache_dir' => …))`.
