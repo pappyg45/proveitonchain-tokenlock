@@ -111,19 +111,19 @@ expect(!tokenlock_pass_looks_valid(str_repeat('a', 5000)), 'oversized pass rejec
 
 echo "verifyPass\n";
 $calls = array();
-$v = tokenlock_verify_pass($GOOD);
+$v = tokenlock_verify_pass($GOOD, array('identity_only' => true));
 expect(!empty($v['valid']) && $v['address'] === 'bc1qtest', 'good pass is valid');
 expect(isset($calls[0]['headers']['Authorization']) && $calls[0]['headers']['Authorization'] === 'Bearer ' . $SK, 'Bearer secret key sent');
 expect($calls[0]['method'] === 'POST', 'verify uses POST');
 $token = isset($calls[0]['headers']['x-tokenlock-sdk']) ? $calls[0]['headers']['x-tokenlock-sdk'] : '';
 expect(strpos($token, 'php/') === 0, 'x-tokenlock-sdk is php/…');
 $n = count($calls);
-$v2 = tokenlock_verify_pass($GOOD);
+$v2 = tokenlock_verify_pass($GOOD, array('identity_only' => true));
 expect($v2['valid'] === true && count($calls) === $n, 'second check served from cache');
 
-$bad = tokenlock_verify_pass($FORGED);
+$bad = tokenlock_verify_pass($FORGED, array('identity_only' => true));
 expect(empty($bad['valid']) && isset($bad['code']) && $bad['code'] === 'bad_pass', 'forged pass rejected');
-$mal = tokenlock_verify_pass('not-a-pass');
+$mal = tokenlock_verify_pass('not-a-pass', array('identity_only' => true));
 expect(empty($mal['valid']) && $mal['code'] === 'bad_pass', 'malformed pass is bad_pass without an API call');
 
 tokenlock_configure(array(
@@ -132,7 +132,7 @@ tokenlock_configure(array(
     'cache_dir' => $cacheDir,
     'http_handler' => $handler,
 ));
-$wrong = tokenlock_verify_pass($GOOD);
+$wrong = tokenlock_verify_pass($GOOD, array('identity_only' => true));
 expect(empty($wrong['valid']), 'wrong secret key is never valid');
 
 $threw = false;
@@ -143,7 +143,7 @@ tokenlock_configure(array(
     'http_handler' => $handler,
 ));
 try {
-    tokenlock_verify_pass($GOOD);
+    tokenlock_verify_pass($GOOD, array('identity_only' => true));
 } catch (TokenlockException $e) {
     $threw = ($e->error_code === 'bad_config');
 }
@@ -158,7 +158,7 @@ tokenlock_configure(array(
     },
 ));
 tokenlock_clear_cache();
-$short = tokenlock_verify_pass($GOOD);
+$short = tokenlock_verify_pass($GOOD, array('identity_only' => true));
 expect(empty($short['valid']), 'a "valid" answer without site_id is treated as invalid');
 
 $net = false;
@@ -172,7 +172,7 @@ tokenlock_configure(array(
 ));
 tokenlock_clear_cache();
 try {
-    tokenlock_verify_pass($GOOD);
+    tokenlock_verify_pass($GOOD, array('identity_only' => true));
 } catch (TokenlockException $e) {
     $net = ($e->error_code === 'network');
 }
@@ -193,7 +193,7 @@ tokenlock_configure(array(
     },
 ));
 tokenlock_clear_cache();
-$exp = tokenlock_verify_pass($GOOD);
+$exp = tokenlock_verify_pass($GOOD, array('identity_only' => true));
 // expired "valid" from API with site_id and address would be cached only if until > now; expires in the past so not cached. It's still valid===true from API though — our code trusts the API's valid flag plus site_id and address, not expiry locally (the server already checks expiry). That's what the SDK does too. Just assert we didn't write a cache file that lasts.
 $files = glob($cacheDir . '/tokenlock_v1_*');
 expect(!$files, 'expired pass is not cached');
@@ -241,7 +241,7 @@ tokenlock_clear_cache();
 $r = tokenlock_verify_pass($ENT, array('path' => '/api/x', 'method' => 'GET'));
 expect(empty($r['valid']) && $r['code'] === 'key_revoked', '0.2.0: revoked key is denied on the next check');
 eq(in_array('route_not_allowed', tokenlock_forbidden_codes(), true), true, '0.2.0: route denials answer 403, not a sign-in redirect');
-eq(TOKENLOCK_PHP, '0.4.2', 'version 0.4.2');
+eq(TOKENLOCK_PHP, '0.4.3', 'version 0.4.3');
 
 // ---------------------------------------------------------------- 0.2.1 security patch
 echo "0.2.1\n";
@@ -304,7 +304,7 @@ foreach (array(true, null) as $st) {
     expect($x['code'] === 'policy_required' && $x['allowed'] === false, '0.4.0: token-only resource check denied (strict=' . var_export($st, true) . ')');
 }
 tokenlock_clear_cache();
-$x = tokenlock_verify_pass($ENT);
+$x = tokenlock_verify_pass($ENT, array('identity_only' => true));
 expect(!empty($x['valid']), '0.4.0: identity-only check on a token-only site stays valid');
 $shape = null;
 $r = tokenlock_verify_pass($ENT, array('path' => '/api%2f..%2fx', 'method' => 'GET'));
@@ -314,16 +314,16 @@ $P2 = 'pp1.' . str_repeat('F', 40) . '.' . str_repeat('Q', 43);
 $shape = function ($b, $r) { return array_merge($b, array('valid' => true)); };
 tokenlock_clear_cache();
 $acalls = array();
-tokenlock_verify_pass($ENT);
-tokenlock_verify_pass($P2);
-tokenlock_verify_pass($ENT);
-tokenlock_verify_pass($P2);
+tokenlock_verify_pass($ENT, array('identity_only' => true));
+tokenlock_verify_pass($P2, array('identity_only' => true));
+tokenlock_verify_pass($ENT, array('identity_only' => true));
+tokenlock_verify_pass($P2, array('identity_only' => true));
 eq(count($acalls), 2, '0.2.1: identity answers cached per pass');
 tokenlock_clear_cache($ENT);
-tokenlock_verify_pass($ENT);
-tokenlock_verify_pass($P2);
+tokenlock_verify_pass($ENT, array('identity_only' => true));
+tokenlock_verify_pass($P2, array('identity_only' => true));
 eq(count($acalls), 3, '0.2.1: clear_cache($pass) drops its entries, others stay');
-tokenlock_verify_pass($P2, null, array('cache' => false));
+tokenlock_verify_pass($P2, array('identity_only' => true), array('cache' => false));
 eq(count($acalls), 4, '0.2.1: cache => false always asks');
 $shape = null;
 tokenlock_verify_pass($ENT, array('path' => '/a', 'method' => 'GET'));
@@ -379,15 +379,15 @@ tokenlock_configure(array_merge($cfgBase, array(
     },
 )));
 tokenlock_clear_cache();
-tokenlock_verify_pass($GOOD);
-tokenlock_verify_pass($GOOD);
+tokenlock_verify_pass($GOOD, array('identity_only' => true));
+tokenlock_verify_pass($GOOD, array('identity_only' => true));
 expect(count($tcalls) === 1, 'review2: identity answer cached');
 $ck = $GOOD . "\n" . $cfgBase['api_base'] . "\ns\n";
 $row = tokenlock_cache_get($ck, $SK);
 expect(is_array($row), 'review2: cache entry found');
 $row['resource'] = array('path' => '/public', 'method' => 'GET');
 tokenlock_cache_put($ck, $SK, $row);
-$c = tokenlock_verify_pass($GOOD);
+$c = tokenlock_verify_pass($GOOD, array('identity_only' => true));
 expect(!empty($c['valid']) && count($tcalls) === 2 && !isset($c['resource']), 'review2: a cache hit that names a resource is not used');
 tokenlock_configure(array_merge($cfgBase, array(
     'http_handler' => function ($method, $url, $headers, $body) use (&$tcalls, &$echo, $future) {
