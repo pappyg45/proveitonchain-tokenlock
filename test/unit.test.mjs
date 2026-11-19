@@ -114,7 +114,7 @@ async function withServer(mw, fn) {
 }
 test('express: no pass → 302 to sign-in with next; good pass → content; forged → redirect + cookie cleared', async () => {
   core.clearCache();
-  const mw = ex.tokenlock({ protect: ['/members/:path*'], signInPage: '/signin', secretKey: SK, fetch: mockFetch() });
+  const mw = ex.tokenlock({ protect: ['/members/:path*'], signInPage: '/signin', secretKey: SK, fetch: mockFetch(), tokenOnly: true });
   await withServer(mw, async (b) => {
     let r = await fetch(b + '/members/x?y=1', { redirect: 'manual' });
     assert.equal(r.status, 302); assert.equal(r.headers.get('location'), '/signin?next=%2Fmembers%2Fx%3Fy%3D1');
@@ -127,7 +127,7 @@ test('express: no pass → 302 to sign-in with next; good pass → content; forg
 });
 test('express: session exchange sets cookie; forged pass 401; foreign origin 403; sign-out clears', async () => {
   core.clearCache();
-  const mw = ex.tokenlock({ protect: '/members/:path*', signInPage: '/signin', secretKey: SK, fetch: mockFetch() });
+  const mw = ex.tokenlock({ protect: '/members/:path*', signInPage: '/signin', secretKey: SK, fetch: mockFetch(), tokenOnly: true });
   await withServer(mw, async (b) => {
     const post = (pass, origin) => fetch(b + '/api/tokenlock/session', { method: 'POST', headers: { 'content-type': 'application/json', ...(origin ? { origin } : {}) }, body: JSON.stringify({ pass }) });
     let r = await post(GOOD, b);
@@ -144,7 +144,7 @@ test('express: session exchange sets cookie; forged pass 401; foreign origin 403
 test('next: middleware redirects without pass, passes with good pass, clears forged', async () => {
   core.clearCache();
   const { NextRequest } = await import('next/server.js');
-  const mw = nx.tokenlock({ protect: ['/members/:path*'], signInPage: '/signin', secretKey: SK, fetch: mockFetch() });
+  const mw = nx.tokenlock({ protect: ['/members/:path*'], signInPage: '/signin', secretKey: SK, fetch: mockFetch(), tokenOnly: true });
   let r = await mw(new NextRequest('https://example.com/members/a?b=2'));
   assert.equal(r.status, 307); assert.equal(r.headers.get('location'), 'https://example.com/signin?next=%2Fmembers%2Fa%3Fb%3D2');
   r = await mw(new NextRequest('https://example.com/members/a', { headers: { cookie: 'tokenlock_pass=' + GOOD } }));
@@ -234,13 +234,45 @@ test('0.2.0 express: path + method sent; out-of-scope route → 403 JSON (no red
     const j = await r.json(); assert.equal(j.code, 'route_not_allowed'); assert.equal(j.correlation_id, 'c0ffee');
   });
 });
-test('0.2.0 backward compatible: token-only answers (no access, no allowed) behave exactly like 0.1.x', async () => {
+test('0.4.0 token-only answers: identity-only checks behave like 0.1.x; a resource check is policy_required', async () => {
   core.clearCache(); const calls = [];
   const c = new core.TokenlockClient({ secretKey: SK, fetch: mockFetch(calls) });
-  const r = await c.verifyPass(GOOD, { path: '/members', method: 'GET' });
+  const r = await c.verifyPass(GOOD);
   assert.equal(r.valid, true); assert.equal(r.access, undefined);
-  await c.verifyPass(GOOD, { path: '/members', method: 'GET' }); assert.equal(calls.length, 1, 'token-only answers: 60 s cache when the server sends no cache_max_s');
-  await c.verifyPass(GOOD, { path: '/members', method: 'GET' }, { cache: false }); assert.equal(calls.length, 2, 'cache: false → always asks');
+  await c.verifyPass(GOOD); assert.equal(calls.length, 1, 'token-only identity answers: 60 s cache when the server sends no cache_max_s');
+  await c.verifyPass(GOOD, undefined, { cache: false }); assert.equal(calls.length, 2, 'cache: false → always asks');
+  const x = await c.verifyPass(GOOD, { path: '/members', method: 'GET' });
+  assert.equal(x.valid, false); assert.equal(x.allowed, false); assert.equal(x.code, 'policy_required'); assert.equal(x.identity_valid, true);
+  assert.equal(calls.at(-1).body.path, '/members');
+});
+test('0.4.0 middleware: token-only site without tokenOnly → 403 policy_required (warned once); with tokenOnly → identity check, no resource sent', async () => {
+  core.clearCache(); const calls = []; const warns = []; const w = console.warn; console.warn = (m) => warns.push(String(m));
+  try {
+    const mw = ex.tokenlock({ protect: ['/members/:path*'], signInPage: '/signin', secretKey: SK, fetch: mockFetch(calls) });
+    await withServer(mw, async (b) => {
+      const r = await fetch(b + '/members/x', { redirect: 'manual', headers: { cookie: 'tokenlock_pass=' + GOOD } });
+      assert.equal(r.status, 403); assert.equal((await r.json()).code, 'policy_required');
+      await fetch(b + '/members/y', { redirect: 'manual', headers: { cookie: 'tokenlock_pass=' + GOOD } });
+    });
+    assert.equal(warns.filter((m) => /tokenOnly: true/.test(m)).length, 1);
+  } finally { console.warn = w; }
+  core.clearCache(); const c2 = [];
+  const mw2 = ex.tokenlock({ protect: ['/members/:path*'], signInPage: '/signin', secretKey: SK, fetch: mockFetch(c2), tokenOnly: true });
+  await withServer(mw2, async (b) => {
+    const r = await fetch(b + '/members/x', { headers: { cookie: 'tokenlock_pass=' + GOOD } });
+    assert.equal(r.status, 200);
+  });
+  assert.ok(c2.every((c) => c.body.path === undefined), 'tokenOnly: identity-only check (no resource sent)');
+});
+test('0.4.0 middleware: tokenOnly on a registered-keys site still enforces routes (no bypass)', async () => {
+  core.clearCache(); const calls = [];
+  const mw = ex.tokenlock({ protect: ['/:path*'], publicPaths: ['/signin'], signInPage: '/signin', secretKey: SK, fetch: accessFetch(calls), environment: 'production', tokenOnly: true });
+  await withServer(mw, async (b) => {
+    let r = await fetch(b + '/api/data', { headers: { cookie: 'tokenlock_pass=' + ENT_PASS } });
+    assert.equal(r.status, 200);
+    r = await fetch(b + '/admin', { redirect: 'manual', headers: { cookie: 'tokenlock_pass=' + ENT_PASS } });
+    assert.equal(r.status, 403); assert.equal((await r.json()).code, 'route_not_allowed');
+  });
 });
 const DOWN = 'pp1.' + 'D'.repeat(40) + '.' + 'Q'.repeat(43);
 test('0.2.0 availability: API down → express fails closed with 503 + Retry-After, cookie kept; failOpen lets it through', async () => {
@@ -261,7 +293,7 @@ test('0.2.0 availability: API down → express fails closed with 503 + Retry-Aft
   // a 5xx from the API counts as unavailable; a "no" (valid:false) never fails open
   const five = async () => new Response('{"error":"busy","code":"kv_unavailable"}', { status: 503, headers: { 'content-type': 'application/json' } });
   assert.equal(core.isUnavailable(await new core.TokenlockClient({ secretKey: SK, fetch: five }).verifyPass(DOWN).catch((e) => e)), true);
-  const mw2 = ex.tokenlock({ protect: ['/members/:path*'], signInPage: '/signin', secretKey: SK, fetch: mockFetch(), failOpen: true });
+  const mw2 = ex.tokenlock({ protect: ['/members/:path*'], signInPage: '/signin', secretKey: SK, fetch: mockFetch(), failOpen: true, tokenOnly: true });
   await withServer(mw2, async (b) => { const r = await fetch(b + '/members/x', { redirect: 'manual', headers: { cookie: 'tokenlock_pass=' + FORGED } }); assert.equal(r.status, 302); });
 });
 test('0.2.0 availability: next middleware 503 when API down; failOpen passes', async () => {

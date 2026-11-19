@@ -5,6 +5,8 @@ import { createHash } from 'node:crypto';
 import { secp256k1, schnorr } from '@noble/curves/secp256k1.js';
 import * as SV from '../dist/self-verify.js';
 import { TokenlockClient, TokenlockError, verifyPass, isUnavailable, VERSION } from '../dist/index.js';
+import { readFileSync } from 'node:fs';
+const PKG = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 
 const sha = (b) => createHash('sha256').update(b).digest();
 const SECRET = 'z'.repeat(40);
@@ -120,7 +122,7 @@ test('0.3.3 signedPolicy: a bad bundle (wrong key) also backs off and keeps its 
 
 // ---------------------------------------------------------------- finding 4 (low): documented exceptions
 test('0.3.3 verifyPass throws TokenlockError: missing secret key, non-2xx HTTP, network; a bad pass is an answer', async () => {
-  assert.equal(VERSION, '0.3.3');
+  assert.equal(VERSION, PKG.version);
   const PASS = 'pp1.' + 'a'.repeat(20) + '.' + 'b'.repeat(20);
   const saved = process.env.TOKENLOCK_SECRET_KEY; delete process.env.TOKENLOCK_SECRET_KEY;
   try {

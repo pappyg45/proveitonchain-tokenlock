@@ -92,10 +92,14 @@ test('strict: valid:true with missing allowed / resource echo / mismatched echo 
     const r = await c.verifyPass(P, { path: '/admin/x', method: 'GET' });
     assert.equal(r.valid, false, name); assert.equal(r.allowed, false, name);
   }
-  // the same incomplete answer is accepted only when strict is explicitly off (0.2.0 behaviour)
+  // an answer without an echo is accepted only when strict is explicitly off (0.2.0 behaviour), and since 0.4.0 only
+  // with a route policy (access block); without one even loose mode answers policy_required
   core.clearCache();
   const loose = new core.TokenlockClient({ secretKey: SK, fetch: api([], { answer: cases.no_echo }), strict: false });
-  assert.equal((await loose.verifyPass(P, { path: '/admin/x', method: 'GET' })).valid, true);
+  assert.equal((await loose.verifyPass(P, { path: '/admin/x', method: 'GET' })).code, 'policy_required');
+  core.clearCache();
+  const looseKeyed = new core.TokenlockClient({ secretKey: SK, strict: false, fetch: api([], { answer: (b) => ({ valid: true, allowed: true, ...b, access: { mode: 'registered_keys', allowed: true, reason: 'ok' } }) }) });
+  assert.equal((await looseKeyed.verifyPass(P, { path: '/admin/x', method: 'GET' })).valid, true);
 });
 test('clearCache(pass) drops every resource entry for that pass only; cache:false always asks', async () => {
   core.clearCache(); const calls = [];

@@ -13,14 +13,17 @@ const SK2 = 'sk_' + 'c'.repeat(43);
 const P = 'pp1.' + 'G'.repeat(40) + '.' + 'Q'.repeat(43);
 const future = () => new Date(Date.now() + 3600e3).toISOString();
 const J = (o, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { 'content-type': 'application/json' } });
-// A token-only site (no registered keys): the API echoes exactly the resource it was sent, no `access` block, so
-// strict answers ARE cached. Only /admin is allowed (case-insensitive, like the hosted API).
-function tokenOnly(calls, { echo } = {}) {
+// 0.4.0: a resource is granted only by a route policy, so these cache tests use a registered-keys site whose key may
+// do anything; non-strict clients cache its answers for cache_max_s. The API echoes exactly the resource it was sent.
+// (Until 0.3.x they used a token-only answer with no access block; that answer is now policy_required, never cached.)
+function tokenOnly(calls, { echo, legacy } = {}) {
   return async (url, init = {}) => {
     const b = JSON.parse(init.body || '{}'); calls.push(b);
     const resource = { path: b.path ?? null, method: b.method ?? null, environment: b.environment ?? null };
+    const r = echo ? echo(resource) : resource;
     const base = { valid: true, address: 'bc1qholder', assets_held: ['TOKENLOCK'], site_id: 's1', expires_at: future(), cache_max_s: 60 };
-    return J({ ...base, allowed: true, resource: echo ? echo(resource) : resource });
+    if (legacy) return J({ ...base, allowed: true, resource: r });
+    return J({ ...base, allowed: true, resource: r, access: { mode: 'registered_keys', allowed: true, reason: 'ok', key: { id: 'k1' }, permissions: {}, key_expires_at: null, resource: r } });
   };
 }
 
@@ -30,7 +33,7 @@ test('resourcePath: shared vectors (canonical, lowercased)', () => {
 
 test('cache key collision (repro): /Admin then /admin answer for the same lowercased resource, with a matching echo', async () => {
   core.clearCache(); const calls = [];
-  const c = new core.TokenlockClient({ secretKey: SK, fetch: tokenOnly(calls) });
+  const c = new core.TokenlockClient({ secretKey: SK, strict: false, fetch: tokenOnly(calls) });
   const a = await c.verifyPass(P, { path: '/Admin', method: 'GET' });
   const b = await c.verifyPass(P, { path: '/admin', method: 'GET' });
   assert.equal(a.valid, true); assert.equal(b.valid, true);
@@ -42,7 +45,7 @@ test('cache key collision (repro): /Admin then /admin answer for the same lowerc
 
 test('cache hits are revalidated against the request: a hit that no longer matches is dropped and asked again', async () => {
   core.clearCache(); const calls = [];
-  const c = new core.TokenlockClient({ secretKey: SK, fetch: tokenOnly(calls) });
+  const c = new core.TokenlockClient({ secretKey: SK, strict: false, fetch: tokenOnly(calls) });
   const a = await c.verifyPass(P, { path: '/admin/x', method: 'GET' });
   assert.equal(a.valid, true);
   a.resource.path = '/admin/other'; // the cached object no longer describes this request
@@ -57,13 +60,13 @@ test('cache hits are revalidated against the request: a hit that no longer match
 test('cache key includes secret key (site), method, environment and mode', async () => {
   core.clearCache(); const calls = [];
   const f = tokenOnly(calls);
-  const one = new core.TokenlockClient({ secretKey: SK, fetch: f });
-  const two = new core.TokenlockClient({ secretKey: SK2, fetch: f });
+  const one = new core.TokenlockClient({ secretKey: SK, strict: false, fetch: f });
+  const two = new core.TokenlockClient({ secretKey: SK2, strict: false, fetch: f });
   await one.verifyPass(P, { path: '/admin', method: 'GET', environment: 'production' });
   await two.verifyPass(P, { path: '/admin', method: 'GET', environment: 'production' }); assert.equal(calls.length, 2, 'site');
   await one.verifyPass(P, { path: '/admin', method: 'POST', environment: 'production' }); assert.equal(calls.length, 3, 'method');
   await one.verifyPass(P, { path: '/admin', method: 'GET', environment: 'staging' }); assert.equal(calls.length, 4, 'environment');
-  await one.verifyPass(P, { path: '/admin', method: 'GET', environment: 'production' }, { strict: false }); assert.equal(calls.length, 5, 'mode');
+  await one.verifyPass(P, { path: '/admin', method: 'GET', environment: 'production' }, { strict: true }); assert.equal(calls.length, 5, 'mode');
   await one.verifyPass(P, { path: '/ADMIN/', method: 'get', environment: 'production' }); assert.equal(calls.length, 5, 'same canonical resource is a hit');
 });
 
@@ -124,16 +127,18 @@ test('Cloudflare: authorization denials keep their reason (403), only malformed 
     [{ ...base, allowed: false, access: acc(false, 'method_not_allowed') }, 'method_not_allowed'],
     [{ ...base, allowed: true, access: acc(false, 'key_revoked') }, 'key_revoked'],
     [{ valid: false, code: 'environment_not_allowed', access: acc(false, 'environment_not_allowed') }, 'environment_not_allowed'],
-    [{ ...base, allowed: false }, 'not_allowed'],
-    [{ ...base, allowed: true }, 'incomplete_answer'],
+    [{ ...base, allowed: false }, 'policy_required'], // 0.4.0: no route policy (token-only) → policy_required
+    [{ ...base, allowed: true }, 'policy_required'],
+    [{ ...base, allowed: false, access: acc(true, 'ok') }, 'not_allowed'],
+    [{ ...base, allowed: true, access: { ...acc(true, 'ok'), resource: undefined } }, 'incomplete_answer'],
     [{ ...base, address: '', allowed: true, resource: res }, 'incomplete_answer'],
-    [{ ...base, allowed: true, resource: { ...res, path: '/public' } }, 'resource_mismatch'],
+    [{ ...base, allowed: true, resource: { ...res, path: '/public' }, access: acc(true, 'ok') }, 'resource_mismatch'],
     [{ ...base, allowed: true, resource: res, access: { mode: 'future', allowed: true } }, 'not_allowed'],
     [{ ...base, expires_at: new Date(Date.now() - 1).toISOString(), allowed: true, resource: res }, 'expired'],
     [null, 'bad_answer'],
   ];
   for (const [v, want] of cases) assert.deepEqual(cf.strictCheck(v, res), { ok: false, code: want }, JSON.stringify(v));
-  assert.deepEqual(cf.strictCheck({ ...base, allowed: true, resource: { ...res, path: '/ADMIN' } }, res), { ok: true });
+  assert.deepEqual(cf.strictCheck({ ...base, allowed: true, resource: { ...res, path: '/ADMIN' }, access: acc(true, 'ok') }, res), { ok: true });
 });
 
 test('Cloudflare worker end to end: route_not_allowed with valid:true → 403 route_not_allowed (was 401 incomplete_answer)', async () => {
@@ -158,4 +163,16 @@ test('path rules v1.1: ambiguous forms are rejected by the SDK and the Cloudflar
     assert.equal(core.canonicalPath(p), null, p);
     assert.equal(core.createMatcher('/admin/*')(p), true, 'treated as locked: ' + p);
   }
+});
+
+test('0.4.0: a valid answer with a resource but no route policy (token-only) is policy_required in strict AND loose mode, never cached', async () => {
+  for (const strict of [true, false]) {
+    core.clearCache(); const calls = [];
+    const c = new core.TokenlockClient({ secretKey: SK, strict, fetch: tokenOnly(calls, { legacy: true }) });
+    const r = await c.verifyPass(P, { path: '/admin', method: 'GET' });
+    assert.equal(r.valid, false, 'strict=' + strict); assert.equal(r.allowed, false); assert.equal(r.code, 'policy_required'); assert.equal(r.identity_valid, true);
+    await c.verifyPass(P, { path: '/admin', method: 'GET' }); assert.equal(calls.length, 2, 'not cached');
+    const id = await c.verifyPass(P); assert.equal(id.valid, true, 'identity-only still valid');
+  }
+  assert.ok(core.FORBIDDEN_CODES.includes('policy_required'));
 });
