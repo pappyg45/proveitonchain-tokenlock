@@ -5,8 +5,6 @@ $visitor = tokenlock_pass();
 $address = isset($visitor['address']) ? $visitor['address'] : '';
 $assets = (isset($visitor['assets_held']) && is_array($visitor['assets_held'])) ? $visitor['assets_held'] : array();
 $expires = isset($visitor['expires_at']) ? $visitor['expires_at'] : '';
-$unverified = !empty($visitor['fail_open']); // TOKENLOCK was unreachable and fail_open is on
-if ($unverified) { $address = 'Not verified right now (TOKENLOCK unreachable)'; }
 $held = $assets ? implode(', ', $assets) : '';
 ?><!doctype html>
 <html lang="en">

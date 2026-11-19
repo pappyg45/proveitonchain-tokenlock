@@ -188,16 +188,16 @@ try {
     assert.equal(r.headers.get('set-cookie'), null);
     const t = await r.text(); assert.match(t, /Please try again/); assert.doesNotMatch(t, /You(?:'|&rsquo;)re in/);
   });
-  await step('fail_open on (TOKENLOCK_FAIL_OPEN=1) → API unavailable lets the pass holder in, marked fail-open', async () => {
+  await step('0.4.2: TOKENLOCK_FAIL_OPEN=1 (removed option) is a configuration error → 500, nothing shown, outage or not', async () => {
     const port2 = 18000 + Math.floor(Math.random() * 900);
     const p2 = spawn(PHP, ['-d', 'display_errors=1', '-S', `127.0.0.1:${port2}`, '-t', root], { cwd: root, env: { ...process.env, TOKENLOCK_API: API, TOKENLOCK_SITE_KEY: PK, TOKENLOCK_SECRET_KEY: SK, TOKENLOCK_CACHE_DIR: path.join(root, 'tokenlock', 'cache'), TOKENLOCK_FAIL_OPEN: '1' }, stdio: 'ignore' });
     try {
       await new Promise((r) => setTimeout(r, 500));
-      const r = await fetch(`http://127.0.0.1:${port2}/holders/`, { redirect: 'manual', headers: { cookie: 'tokenlock_pass=' + DOWN } });
-      assert.equal(r.status, 200); assert.equal(r.headers.get('x-tokenlock'), 'fail-open');
-      const body = await r.text(); assert.match(body, /Not verified right now/); assert.doesNotMatch(body, /Warning|Notice|Fatal/);
-      const f = await fetch(`http://127.0.0.1:${port2}/holders/`, { redirect: 'manual', headers: { cookie: 'tokenlock_pass=' + FORGED } });
-      assert.equal(f.status, 302, 'a "no" from the API never fails open');
+      for (const c of [DOWN, GOOD]) {
+        const r = await fetch(`http://127.0.0.1:${port2}/holders/`, { redirect: 'manual', headers: { cookie: 'tokenlock_pass=' + c } });
+        assert.equal(r.status, 500); assert.equal(r.headers.get('x-tokenlock'), null);
+        const body = await r.text(); assert.doesNotMatch(body, /You(?:'|&rsquo;)re in|Not verified right now/); assert.doesNotMatch(body, /Warning|Notice|Fatal|sk_/);
+      }
     } finally { p2.kill(); }
   });
   await step('sign-out clears the cookie and 303s', async () => {
