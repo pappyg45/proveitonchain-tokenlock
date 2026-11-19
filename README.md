@@ -45,9 +45,9 @@ What to do:
 - **PHP drop-in**: upgrade to PHP 0.4.0 and set `'token_only' => true` (or `TOKENLOCK_TOKEN_ONLY=1`) on token-only sites.
 - **Cloudflare worker example**: set `TOKENLOCK_TOKEN_ONLY = "1"` on token-only sites.
 
-The hosted API answers `policy_required` to 0.4.0 clients and to direct API calls. SDK 0.2.x/0.3.x and PHP 0.2.x/0.3.x
-clients still get the old `allowed: true` answer, now marked `policy: 'none'` with a `warning`, so existing token-only
-sites keep working until they upgrade; those versions remain affected.
+The hosted API answers `policy_required` to every client version, SDK and PHP 0.2.x/0.3.x included (since 18 Nov 2026,
+9:03 PM PT), so token-only sites still on 0.2.x/0.3.x middleware deny protected paths until they upgrade (or set
+`checkResource: false` for identity-only checks).
 
 ## 2. Install
 
