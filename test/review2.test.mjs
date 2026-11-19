@@ -46,12 +46,12 @@ test('cache key collision (repro): /Admin then /admin are the same canonical res
 test('cache hits are revalidated against the request: a hit that no longer matches (expired) is dropped and asked again', async () => {
   core.clearCache(); const calls = [];
   const c = new core.TokenlockClient({ secretKey: SK, fetch: async (u, init) => { calls.push(1); return J({ valid: true, address: 'bc1qholder', assets_held: ['TOKENLOCK'], site_id: 's1', expires_at: future(), cache_max_s: 60 }); } });
-  const a = await c.verifyPass(P); assert.equal(a.valid, true);
-  await c.verifyPass(P); assert.equal(calls.length, 1, 'identity answer cached');
+  const a = await c.verifyPass(P, { identityOnly: true }); assert.equal(a.valid, true);
+  await c.verifyPass(P, { identityOnly: true }); assert.equal(calls.length, 1, 'identity answer cached');
   a.expires_at = new Date(Date.now() - 1000).toISOString(); // the cached object no longer holds
-  const b = await c.verifyPass(P); assert.equal(b.valid, true); assert.equal(calls.length, 2, 'the bad hit was not used');
+  const b = await c.verifyPass(P, { identityOnly: true }); assert.equal(b.valid, true); assert.equal(calls.length, 2, 'the bad hit was not used');
   a.resource = { path: '/admin', method: 'GET', environment: null }; b.resource = { path: '/admin', method: 'GET', environment: null };
-  await c.verifyPass(P); assert.equal(calls.length, 3, 'a cached identity answer that suddenly names a resource is not used');
+  await c.verifyPass(P, { identityOnly: true }); assert.equal(calls.length, 3, 'a cached identity answer that suddenly names a resource is not used');
 });
 
 test('cache key includes secret key (site): identity answers of one site never answer for another', async () => {
@@ -59,8 +59,8 @@ test('cache key includes secret key (site): identity answers of one site never a
   const f = async () => { calls.push(1); return J({ valid: true, address: 'bc1qholder', assets_held: ['TOKENLOCK'], site_id: 's1', expires_at: future(), cache_max_s: 60 }); };
   const one = new core.TokenlockClient({ secretKey: SK, fetch: f });
   const two = new core.TokenlockClient({ secretKey: SK2, fetch: f });
-  await one.verifyPass(P); await two.verifyPass(P); assert.equal(calls.length, 2, 'site');
-  await one.verifyPass(P); await two.verifyPass(P); assert.equal(calls.length, 2, 'each site hit its own entry');
+  await one.verifyPass(P, { identityOnly: true }); await two.verifyPass(P, { identityOnly: true }); assert.equal(calls.length, 2, 'site');
+  await one.verifyPass(P, { identityOnly: true }); await two.verifyPass(P, { identityOnly: true }); assert.equal(calls.length, 2, 'each site hit its own entry');
   // resource checks (method/environment variations included) always ask
   const k = new core.TokenlockClient({ secretKey: SK, fetch: tokenOnly([]) });
   const kc = []; const k2 = new core.TokenlockClient({ secretKey: SK, fetch: tokenOnly(kc) });
@@ -169,7 +169,7 @@ test('0.4.0: a valid answer with a resource but no route policy (token-only) is 
     const r = await c.verifyPass(P, { path: '/admin', method: 'GET' });
     assert.equal(r.valid, false, 'strict=' + strict); assert.equal(r.allowed, false); assert.equal(r.code, 'policy_required'); assert.equal(r.identity_valid, true);
     await c.verifyPass(P, { path: '/admin', method: 'GET' }); assert.equal(calls.length, 2, 'not cached');
-    const id = await c.verifyPass(P); assert.equal(id.valid, true, 'identity-only still valid');
+    const id = await c.verifyPass(P, { identityOnly: true }); assert.equal(id.valid, true, 'identity-only still valid');
   }
   assert.ok(core.FORBIDDEN_CODES.includes('policy_required'));
 });

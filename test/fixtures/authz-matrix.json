@@ -1,18 +1,269 @@
 {
-  "version": 1,
-  "note": "Shared TOKENLOCK authorization matrix (advisory 2026-11-18). Every integration must give the same allow/deny and code. policy: 'registered_keys' = a route policy with one key (routes ['/api/*'], methods ['GET']); 'token' = a policy/site with no route rules (registered keys off); 'none' = no policy at all (self-verify) / token-only site (hosted). allow = valid === true && allowed !== false; code is 'ok' when allowed.",
-  "key": { "routes": ["/api/*"], "methods": ["GET"] },
+  "version": "0.4.3",
+  "note": "Shared TOKENLOCK authorization matrix (advisory 2026-11-18). Every integration must give the same allow/deny and code. policy: 'registered_keys' = a route policy with one key (routes ['/api/*'], methods ['GET']); 'token' = a policy/site with no route rules (registered keys off); 'none' = no policy at all (self-verify) / token-only site (hosted). allow = valid === true && allowed !== false; code is 'ok' when allowed. 0.4.3: resource null means an explicit identity-only request ({ identityOnly: true } / identity_only: true); malformed requests must be refused with bad_resource or bad_path by every integration, never answered as identity-only.",
+  "key": {
+    "routes": [
+      "/api/*"
+    ],
+    "methods": [
+      "GET"
+    ]
+  },
   "cases": [
-    { "id": "identity_only", "policy": "registered_keys", "key": "active", "pass": "valid", "resource": null, "expect": { "allow": true, "code": "ok" } },
-    { "id": "identity_only_no_policy", "policy": "none", "pass": "valid", "resource": null, "expect": { "allow": true, "code": "ok" } },
-    { "id": "resource_without_policy", "policy": "none", "pass": "valid", "resource": { "path": "/api/data", "method": "GET" }, "expect": { "allow": false, "code": "policy_required" } },
-    { "id": "resource_allowed_by_policy", "policy": "registered_keys", "key": "active", "pass": "valid", "resource": { "path": "/api/data", "method": "GET" }, "expect": { "allow": true, "code": "ok" } },
-    { "id": "resource_route_denied", "policy": "registered_keys", "key": "active", "pass": "valid", "resource": { "path": "/admin", "method": "GET" }, "expect": { "allow": false, "code": "route_not_allowed" } },
-    { "id": "resource_method_denied", "policy": "registered_keys", "key": "active", "pass": "valid", "resource": { "path": "/api/data", "method": "POST" }, "expect": { "allow": false, "code": "method_not_allowed" } },
-    { "id": "token_only_with_resource", "policy": "token", "pass": "valid", "resource": { "path": "/api/data", "method": "GET" }, "expect": { "allow": false, "code": "policy_required" } },
-    { "id": "token_only_identity", "policy": "token", "pass": "valid", "resource": null, "expect": { "allow": true, "code": "ok" } },
-    { "id": "revoked_key", "policy": "registered_keys", "key": "revoked", "pass": "valid", "resource": { "path": "/api/data", "method": "GET" }, "expect": { "allow": false, "code": "key_revoked" } },
-    { "id": "expired_pass", "policy": "registered_keys", "key": "active", "pass": "expired", "resource": { "path": "/api/data", "method": "GET" }, "expect": { "allow": false, "code": "expired" } },
-    { "id": "forged_pass", "policy": "registered_keys", "key": "active", "pass": "forged", "resource": { "path": "/api/data", "method": "GET" }, "expect": { "allow": false, "code": "bad_pass" } }
+    {
+      "id": "identity_only",
+      "policy": "registered_keys",
+      "key": "active",
+      "pass": "valid",
+      "resource": null,
+      "expect": {
+        "allow": true,
+        "code": "ok"
+      }
+    },
+    {
+      "id": "identity_only_no_policy",
+      "policy": "none",
+      "pass": "valid",
+      "resource": null,
+      "expect": {
+        "allow": true,
+        "code": "ok"
+      }
+    },
+    {
+      "id": "resource_without_policy",
+      "policy": "none",
+      "pass": "valid",
+      "resource": {
+        "path": "/api/data",
+        "method": "GET"
+      },
+      "expect": {
+        "allow": false,
+        "code": "policy_required"
+      }
+    },
+    {
+      "id": "resource_allowed_by_policy",
+      "policy": "registered_keys",
+      "key": "active",
+      "pass": "valid",
+      "resource": {
+        "path": "/api/data",
+        "method": "GET"
+      },
+      "expect": {
+        "allow": true,
+        "code": "ok"
+      }
+    },
+    {
+      "id": "resource_route_denied",
+      "policy": "registered_keys",
+      "key": "active",
+      "pass": "valid",
+      "resource": {
+        "path": "/admin",
+        "method": "GET"
+      },
+      "expect": {
+        "allow": false,
+        "code": "route_not_allowed"
+      }
+    },
+    {
+      "id": "resource_method_denied",
+      "policy": "registered_keys",
+      "key": "active",
+      "pass": "valid",
+      "resource": {
+        "path": "/api/data",
+        "method": "POST"
+      },
+      "expect": {
+        "allow": false,
+        "code": "method_not_allowed"
+      }
+    },
+    {
+      "id": "token_only_with_resource",
+      "policy": "token",
+      "pass": "valid",
+      "resource": {
+        "path": "/api/data",
+        "method": "GET"
+      },
+      "expect": {
+        "allow": false,
+        "code": "policy_required"
+      }
+    },
+    {
+      "id": "token_only_identity",
+      "policy": "token",
+      "pass": "valid",
+      "resource": null,
+      "expect": {
+        "allow": true,
+        "code": "ok"
+      }
+    },
+    {
+      "id": "revoked_key",
+      "policy": "registered_keys",
+      "key": "revoked",
+      "pass": "valid",
+      "resource": {
+        "path": "/api/data",
+        "method": "GET"
+      },
+      "expect": {
+        "allow": false,
+        "code": "key_revoked"
+      }
+    },
+    {
+      "id": "expired_pass",
+      "policy": "registered_keys",
+      "key": "active",
+      "pass": "expired",
+      "resource": {
+        "path": "/api/data",
+        "method": "GET"
+      },
+      "expect": {
+        "allow": false,
+        "code": "expired"
+      }
+    },
+    {
+      "id": "forged_pass",
+      "policy": "registered_keys",
+      "key": "active",
+      "pass": "forged",
+      "resource": {
+        "path": "/api/data",
+        "method": "GET"
+      },
+      "expect": {
+        "allow": false,
+        "code": "bad_pass"
+      }
+    },
+    {
+      "id": "malformed_unknown_field",
+      "policy": "registered_keys",
+      "key": "active",
+      "pass": "valid",
+      "resource": {
+        "pth": "/api/data",
+        "method": "GET"
+      },
+      "expect": {
+        "allow": false,
+        "code": "bad_resource"
+      }
+    },
+    {
+      "id": "malformed_path_array",
+      "policy": "registered_keys",
+      "key": "active",
+      "pass": "valid",
+      "resource": {
+        "path": [
+          "/api/data"
+        ],
+        "method": "GET"
+      },
+      "expect": {
+        "allow": false,
+        "code": "bad_resource"
+      }
+    },
+    {
+      "id": "malformed_empty_path",
+      "policy": "registered_keys",
+      "key": "active",
+      "pass": "valid",
+      "resource": {
+        "path": "",
+        "method": "GET"
+      },
+      "expect": {
+        "allow": false,
+        "code": "bad_resource"
+      }
+    },
+    {
+      "id": "malformed_whitespace_method",
+      "policy": "registered_keys",
+      "key": "active",
+      "pass": "valid",
+      "resource": {
+        "path": "/api/data",
+        "method": "   "
+      },
+      "expect": {
+        "allow": false,
+        "code": "bad_resource"
+      }
+    },
+    {
+      "id": "malformed_null_environment",
+      "policy": "registered_keys",
+      "key": "active",
+      "pass": "valid",
+      "resource": {
+        "path": "/api/data",
+        "method": "GET",
+        "environment": null
+      },
+      "expect": {
+        "allow": false,
+        "code": "bad_resource"
+      }
+    },
+    {
+      "id": "partial_path_without_method",
+      "policy": "registered_keys",
+      "key": "active",
+      "pass": "valid",
+      "resource": {
+        "path": "/api/data"
+      },
+      "expect": {
+        "allow": false,
+        "code": "bad_resource"
+      }
+    },
+    {
+      "id": "traversal_path",
+      "policy": "registered_keys",
+      "key": "active",
+      "pass": "valid",
+      "resource": {
+        "path": "/api/../admin",
+        "method": "GET"
+      },
+      "expect": {
+        "allow": false,
+        "code": "bad_path"
+      }
+    },
+    {
+      "id": "double_encoded_path",
+      "policy": "registered_keys",
+      "key": "active",
+      "pass": "valid",
+      "resource": {
+        "path": "/api/%252e%252e/admin",
+        "method": "GET"
+      },
+      "expect": {
+        "allow": false,
+        "code": "bad_path"
+      }
+    }
   ]
 }

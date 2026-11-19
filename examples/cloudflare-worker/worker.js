@@ -38,7 +38,7 @@ const rawPath = (u) => (String(u).match(/^[a-z][a-z0-9+.-]*:\/\/[^/?#]*([^?#]*)/
  * { ok:false, v, code }; throws when the API can't answer. Authorization denials keep the server's reason
  * (route_not_allowed, key_revoked, …); only a malformed answer is 'incomplete_answer'.
  */
-const VERSION = '0.4.2';
+const VERSION = '0.4.3';
 const MAX_ANSWER_BYTES = 65536;
 const REMOVED = ['TOKENLOCK_FAIL_OPEN', 'TOKENLOCK_CHECK_RESOURCE', 'TOKENLOCK_STRICT'];
 /** Config check (0.4.2). Returns null when the settings are usable, else the reason. Never guesses a default for a bad value. */
@@ -48,16 +48,34 @@ export function configProblem(env) {
   if (typeof env.TOKENLOCK_SECRET_KEY !== 'string' || !/^sk_[A-Za-z0-9_-]{20,200}$/.test(env.TOKENLOCK_SECRET_KEY)) return 'TOKENLOCK_SECRET_KEY must be your sk_… secret key.';
   if (env.TOKENLOCK_TOKEN_ONLY !== undefined && !['', '0', '1'].includes(String(env.TOKENLOCK_TOKEN_ONLY))) return 'TOKENLOCK_TOKEN_ONLY must be 1 or 0.';
   if (env.TOKENLOCK_TIMEOUT_MS !== undefined && !(/^\d{1,5}$/.test(String(env.TOKENLOCK_TIMEOUT_MS)) && +env.TOKENLOCK_TIMEOUT_MS >= 1 && +env.TOKENLOCK_TIMEOUT_MS <= 60000)) return 'TOKENLOCK_TIMEOUT_MS must be a whole number of milliseconds from 1 to 60000.';
+  if (env.TOKENLOCK_ENVIRONMENT !== undefined && !(typeof env.TOKENLOCK_ENVIRONMENT === 'string' && /^[A-Za-z0-9][A-Za-z0-9_.-]{0,29}$/.test(env.TOKENLOCK_ENVIRONMENT))) return 'TOKENLOCK_ENVIRONMENT must be 1-30 letters, digits, _, . or - (no spaces, not empty).';
   if (env.TOKENLOCK_API !== undefined) { try { const u = new URL(env.TOKENLOCK_API); if (u.protocol !== 'https:' && u.protocol !== 'http:') return 'TOKENLOCK_API must be an http(s) URL.'; } catch { return 'TOKENLOCK_API must be an http(s) URL.'; } }
   return null;
 }
+// 0.4.3: the authorization request is explicit. resource = { path, method, environment? } (validated) or
+// { identityOnly: true }. Anything else (missing, unknown fields, wrong types, empty or padded values) is refused.
+function checkResource(resource) {
+  if (!resource || typeof resource !== 'object' || Array.isArray(resource)) return 'bad_resource';
+  const keys = Object.keys(resource);
+  if ('identityOnly' in resource) return resource.identityOnly === true && keys.length === 1 ? null : 'bad_resource';
+  for (const k of keys) if (!['path', 'method', 'environment'].includes(k)) return 'bad_resource';
+  if (!('path' in resource) || !('method' in resource)) return 'bad_resource';
+  for (const k of keys) { const v = resource[k]; if (typeof v !== 'string' || v === '' || v.trim() !== v) return 'bad_resource'; }
+  if (!/^[A-Za-z]{1,10}$/.test(resource.method)) return 'bad_resource';
+  if ('environment' in resource && !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,29}$/.test(resource.environment)) return 'bad_resource';
+  if (!resource.path.startsWith('/') || canonicalPath(resource.path) === null) return 'bad_path';
+  return null;
+}
 export async function verify(pass, env, resource) {
+  const rc = checkResource(resource);
+  if (rc) return { ok: false, code: rc };
+  const body = resource.identityOnly ? { pass, identity_only: true } : { pass, path: resource.path, method: resource.method.toUpperCase(), ...(resource.environment ? { environment: resource.environment } : {}) };
   if (!pass || !/^pp1\.[\w-]+\.[\w-]+$/.test(pass) || pass.length > 4000) return { ok: false, code: 'bad_pass' };
   const ms = env.TOKENLOCK_TIMEOUT_MS !== undefined ? +env.TOKENLOCK_TIMEOUT_MS : 8000;
   let r, text;
   try {
     // Fail-closed timeout: a slow or hung API throws (→ 503), it never lets the request through.
-    r = await fetch((env.TOKENLOCK_API || 'https://proveitonchain.com') + '/api/v1/gate/verify', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + env.TOKENLOCK_SECRET_KEY, 'x-tokenlock-sdk': 'cf-worker/' + VERSION }, body: JSON.stringify({ pass, ...(resource || {}) }), signal: AbortSignal.timeout(ms) });
+    r = await fetch((env.TOKENLOCK_API || 'https://proveitonchain.com') + '/api/v1/gate/verify', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + env.TOKENLOCK_SECRET_KEY, 'x-tokenlock-sdk': 'cf-worker/' + VERSION }, body: JSON.stringify(body), signal: AbortSignal.timeout(ms) });
     if (r.status >= 500) throw new Error('tokenlock_unavailable');
     if (Number(r.headers.get('content-length') || 0) > MAX_ANSWER_BYTES) throw new Error('tokenlock_bad_answer');
     text = await r.text();
@@ -65,7 +83,7 @@ export async function verify(pass, env, resource) {
   if (text.length > MAX_ANSWER_BYTES) throw new Error('tokenlock_unavailable');
   let v = null; try { v = JSON.parse(text); } catch { v = null; }
   if (r.ok && (!v || typeof v !== 'object' || Array.isArray(v))) throw new Error('tokenlock_unavailable'); // bad 2xx answer: deny (503)
-  return { ...strictCheck(v, resource), v };
+  return { ...strictCheck(v, resource.identityOnly ? null : resource), v };
 }
 const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$/;
 const isObj = (x) => !!x && typeof x === 'object' && !Array.isArray(x);
@@ -136,7 +154,7 @@ export default {
       if (bad) return badConfig();
       if (req.headers.get('origin') !== url.origin) return new Response('Wrong site', { status: 403 });
       const { pass } = await req.json().catch(() => ({}));
-      let r; try { r = await verify(pass, env); } catch { return json({ ok: false, code: 'tokenlock_unavailable' }, 503); }
+      let r; try { r = await verify(pass, env, { identityOnly: true }); } catch { return json({ ok: false, code: 'tokenlock_unavailable' }, 503); }
       if (!r.ok) return json({ ok: false, code: r.code }, 401);
       const age = Math.max(0, Math.min(86400 * 30, Math.floor((Date.parse(r.v.expires_at) - Date.now()) / 1000)));
       return json({ ok: true, address: r.v.address }, 200, { 'set-cookie': cookie(pass, age) });
@@ -148,13 +166,13 @@ export default {
     const accept = (req.headers.get('accept') || '').toLowerCase();
     const api = under(path, list(env.TOKENLOCK_API_PATHS, API_PATHS)) || (accept.includes('application/json') && !accept.includes('text/html'));
     const pass = readCookie(req, COOKIE);
-    const resource = { path: path.toLowerCase(), method: req.method.toUpperCase(), environment: env.TOKENLOCK_ENVIRONMENT || null };
+    const resource = { path: path.toLowerCase(), method: req.method.toUpperCase(), ...(env.TOKENLOCK_ENVIRONMENT ? { environment: env.TOKENLOCK_ENVIRONMENT } : {}) };
     let r = { ok: false, code: 'signin_required' };
     if (pass) {
       try {
         // TOKENLOCK_TOKEN_ONLY=1: every token holder may open the protected paths (token-only site). Check identity and
         // token; if the site has registered keys after all, enforce its route policy.
-        if (env.TOKENLOCK_TOKEN_ONLY === '1') { r = await verify(pass, env); if (r.ok && r.v.access !== undefined) r = await verify(pass, env, resource); }
+        if (env.TOKENLOCK_TOKEN_ONLY === '1') { r = await verify(pass, env, { identityOnly: true }); if (r.ok && r.v.access !== undefined) r = await verify(pass, env, resource); }
         else r = await verify(pass, env, resource);
       }
       catch { return json({ error: 'Could not check your sign-in right now. Try again in a moment.', code: 'tokenlock_unavailable', reason: 'The verification service did not answer; protected access is denied until it does.' }, 503, { 'retry-after': '15' }); }

@@ -5,7 +5,7 @@
  */
 export const DEFAULT_API = 'https://proveitonchain.com';
 export const DEFAULT_COOKIE = 'tokenlock_pass';
-export const VERSION = '0.4.2';
+export const VERSION = '0.4.3';
 
 export interface PassInfo {
   /** True only if the pass is real, unexpired, issued for your site and holds a token your site accepts. */
@@ -48,6 +48,8 @@ export interface AccessInfo {
 }
 /** What the visitor is trying to reach. Checked against the key's permissions on sites with registered keys. */
 export interface Resource { path?: string; method?: string; environment?: string }
+/** 0.4.3: an identity-only check must be asked for explicitly. */
+export interface IdentityOnly { identityOnly: true }
 
 export interface ChallengeInfo {
   challenge_id: string;
@@ -185,13 +187,15 @@ export class TokenlockClient {
    * Give `resource` ({ path, method, environment }) to have the route, method and environment checked too (sites with
    * registered keys); the answer then has `allowed` and `access`.
    */
-  async verifyPass(pass: string | null | undefined, resource?: Resource, o: { strict?: boolean; cache?: boolean } = {}): Promise<PassInfo> {
+  async verifyPass(pass: string | null | undefined, resource: Resource | IdentityOnly, o: { strict?: boolean; cache?: boolean } = {}): Promise<PassInfo> {
     if (o && o.strict !== undefined && o.strict !== true) throw badConfig('verifyPass: strict: false (loose mode) was removed in 0.4.2; answers are always checked strictly.');
     if (o && o.cache !== undefined && typeof o.cache !== 'boolean') throw badConfig('verifyPass: cache must be true or false.');
     if (!this.secretKey) throw new TokenlockError('Missing secret key. Set TOKENLOCK_SECRET_KEY or pass { secretKey }.', 0, 'no_secret_key');
-    if (!pass || typeof pass !== 'string' || !/^pp1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(pass) || pass.length > 4000) return { valid: false, code: 'bad_pass', reason: 'Not a valid pass.' };
+    // 0.4.3: the authorization request is validated first. A malformed one is refused (bad_resource / bad_path) and is
+    // never sent as an identity-only check; an identity-only check must be asked for with { identityOnly: true }.
     let res: Resource | null;
-    try { res = cleanResource(resource); } catch { return { valid: false, allowed: false, code: 'bad_path', reason: 'Not a valid path.' }; }
+    try { res = validateResource(resource, 'verifyPass'); } catch (e: any) { if (e?.code === 'bad_path') return { valid: false, allowed: false, code: 'bad_path', reason: 'Not a valid path.' }; throw e; }
+    if (!pass || typeof pass !== 'string' || !/^pp1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(pass) || pass.length > 4000) return { valid: false, code: 'bad_pass', reason: 'Not a valid pass.' };
     const strict = true; // 0.4.2: always strict
     const useCache = (o.cache ?? this.useCache) !== false;
     // One cache entry per (site key, API, pass, mode, method, canonical lowercased path, environment). Every hit is
@@ -205,7 +209,7 @@ export class TokenlockClient {
         cache.delete(ck);
       }
     }
-    const info = await this.request<PassInfo>('POST', '/api/v1/gate/verify', { pass, ...(res || {}) });
+    const info = await this.request<PassInfo>('POST', '/api/v1/gate/verify', res ? { pass, ...res } : { pass, identity_only: true });
     const out = strictCheck(info, res);
     if (out.valid && useCache && !out.access) remember(ck, pass, this.secretKey, out);
     return out;
@@ -251,13 +255,52 @@ export function resourcePath(raw: string | null | undefined): string | null {
   const c = canonicalPath(raw);
   return c === null ? null : c.toLowerCase();
 }
-function cleanResource(r?: Resource): Resource | null {
-  if (!r) return null;
-  const out: Resource = {};
-  if (typeof r.path === 'string' && r.path) { const c = resourcePath(r.path); if (!c) throw new TokenlockError('Not a valid path.', 400, 'bad_path'); out.path = c; }
-  if (typeof r.method === 'string' && r.method) out.method = r.method.toUpperCase().slice(0, 10);
-  if (typeof r.environment === 'string' && r.environment) out.environment = r.environment.slice(0, 30);
-  return Object.keys(out).length ? out : null;
+export const RESOURCE_KEYS = ['path', 'method', 'environment'] as const;
+export const METHOD_RE = /^[A-Za-z]{1,10}$/;
+export const ENVIRONMENT_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,29}$/;
+const badResource = (m: string) => new TokenlockError(m, 400, 'bad_resource');
+const IDENTITY_HINT = 'Pass { path, method } (and optionally environment) to authorize a route, or { identityOnly: true } for an identity-only check.';
+/**
+ * 0.4.3: the one schema for an authorization request, used by every entry point (verifyPass, TokenlockClient.verifyPass,
+ * getPass, authorize, the middleware and self-verify). Returns the canonical resource, or null for an explicit
+ * identity-only request ({ identityOnly: true } and nothing else). Throws TokenlockError 'bad_resource' for anything
+ * else: not a plain object, unknown fields, a path without a method (or the reverse), values that are not strings or
+ * are empty, whitespace-only or padded, null/undefined values, over-long methods or environments (never truncated);
+ * and 'bad_path' for a path that is relative or fails the canonical path rules (a query or fragment is dropped, as in path rules v1.1).
+ * A malformed request can therefore never become an identity-only check.
+ */
+export function validateResource(r: unknown, name = 'verifyPass'): Resource | null {
+  const proto = r !== null && typeof r === 'object' ? Object.getPrototypeOf(r) : undefined;
+  if (r === null || typeof r !== 'object' || Array.isArray(r) || (proto !== Object.prototype && proto !== null)) throw badResource(`${name}: missing or malformed authorization request. ${IDENTITY_HINT}`);
+  const o = r as Record<string, unknown>; const keys = Object.keys(o);
+  for (const k of keys) if (k !== 'identityOnly' && !(RESOURCE_KEYS as readonly string[]).includes(k)) throw badResource(`${name}: unknown authorization field "${k}". ${IDENTITY_HINT}`);
+  if ('identityOnly' in o) {
+    if (o.identityOnly !== true || keys.length !== 1) throw badResource(`${name}: identityOnly must be exactly true and can't be combined with path, method or environment.`);
+    return null;
+  }
+  if (!('path' in o) || !('method' in o)) throw badResource(`${name}: an authorization request needs both path and method. ${IDENTITY_HINT}`);
+  const str = (k: string) => { const v = o[k]; if (typeof v !== 'string' || v === '' || v.trim() !== v) throw badResource(`${name}: ${k} must be a non-empty string without surrounding whitespace.`); return v; };
+  const path = str('path');
+  if (!path.startsWith('/')) throw new TokenlockError('Not a valid path.', 400, 'bad_path');
+  const cp = resourcePath(path); if (!cp) throw new TokenlockError('Not a valid path.', 400, 'bad_path');
+  const method = str('method'); if (!METHOD_RE.test(method)) throw badResource(`${name}: method must be an HTTP method name (letters only, at most 10).`);
+  const out: Resource = { path: cp, method: method.toUpperCase() };
+  if ('environment' in o) { const e = str('environment'); if (!ENVIRONMENT_RE.test(e)) throw badResource(`${name}: environment must be 1–30 letters, digits, '_', '.' or '-'.`); out.environment = e; }
+  return out;
+}
+const CLIENT_KEYS = ['secretKey', 'siteKey', 'apiBase', 'fetch', 'timeoutMs', 'cache', 'strict'];
+/** Split a combined options object into client options and the authorization request (keys present only). Unknown keys are refused. */
+export function splitAuthOptions(opts: Record<string, any>, name: string, extra: string[] = []): { client: Record<string, any>; request: Record<string, any> | undefined; extra: Record<string, any> } {
+  if (opts === null || typeof opts !== 'object' || Array.isArray(opts)) throw badResource(`${name}: options must be an object.`);
+  const client: Record<string, any> = {}, request: Record<string, any> = {}, ex: Record<string, any> = {};
+  let hasReq = false;
+  for (const k of Object.keys(opts)) {
+    if ((RESOURCE_KEYS as readonly string[]).includes(k) || k === 'identityOnly') { request[k] = opts[k]; hasReq = true; }
+    else if (CLIENT_KEYS.includes(k) || k in REMOVED_OPTIONS) client[k] = opts[k];
+    else if (extra.includes(k)) ex[k] = opts[k];
+    else throw badResource(`${name}: unknown option or authorization field "${k}". ${IDENTITY_HINT}`);
+  }
+  return { client, request: hasReq ? request : undefined, extra: ex };
 }
 /** 0.4.0: a resource is granted only by a route policy (registered keys). A valid answer with no access block means none applied. */
 function noPolicy(info: PassInfo): PassInfo {
@@ -333,9 +376,13 @@ let shared: TokenlockClient | null = null;
 const client = (o?: ClientOptions) => (o && Object.keys(o).length ? new TokenlockClient(o) : (shared ||= new TokenlockClient()));
 
 /** Check a pass. `verifyPass(pass, { secretKey, path, method, environment })`. Throws `TokenlockError` (see TokenlockClient.verifyPass). */
-export async function verifyPass(pass: string | null | undefined, opts: ClientOptions & Resource = {}): Promise<PassInfo> {
-  const { path, method, environment, strict, cache: useCache, ...c } = opts;
-  return client(c).verifyPass(pass, path || method || environment ? { path, method, environment } : undefined, { strict, cache: useCache });
+export async function verifyPass(pass: string | null | undefined, opts: ClientOptions & (Resource | IdentityOnly | {}) = {}): Promise<PassInfo> {
+  const { client: c, request } = splitAuthOptions(opts as any, 'verifyPass');
+  const { strict, cache: useCache, ...rest } = c;
+  checkClientOptions(c, 'verifyPass');
+  let res: Resource | null; // throws before any network call; null = explicit identity-only
+  try { res = validateResource(request, 'verifyPass'); } catch (e: any) { if (e?.code === 'bad_path') return { valid: false, allowed: false, code: 'bad_path', reason: 'Not a valid path.' }; throw e; }
+  return client(rest).verifyPass(pass, res ?? { identityOnly: true }, { strict, cache: useCache });
 }
 /** True when the error means the TOKENLOCK API couldn't answer (network, timeout, 5xx): not a "no". */
 export function isUnavailable(e: unknown): boolean {
@@ -387,11 +434,14 @@ export function readPass(req: AnyRequest, cookieName = DEFAULT_COOKIE): string |
 }
 
 /** The signed-in visitor for this request, or null. Checks the pass cookie with your secret key. */
-export async function getPass(req: AnyRequest, opts: ClientOptions & { cookieName?: string } & Resource = {}): Promise<PassInfo | null> {
-  const { cookieName, path, method, environment, strict, cache: useCache, ...c } = opts;
-  const pass = readPass(req, cookieName || DEFAULT_COOKIE);
+export async function getPass(req: AnyRequest, opts: ClientOptions & { cookieName?: string } & (Resource | IdentityOnly | {}) = {}): Promise<PassInfo | null> {
+  const { client: c, request, extra } = splitAuthOptions(opts as any, 'getPass', ['cookieName']);
+  const { strict, cache: useCache, ...rest } = c;
+  checkClientOptions(c, 'getPass');
+  const res = validateResource(request, 'getPass'); // 0.4.3: a route or { identityOnly: true }; never inferred
+  const pass = readPass(req, extra.cookieName || DEFAULT_COOKIE);
   if (!pass) return null;
-  const info = await client(c).verifyPass(pass, path || method || environment ? { path, method, environment } : undefined, { strict, cache: useCache });
+  const info = await client(rest).verifyPass(pass, res ?? { identityOnly: true }, { strict, cache: useCache });
   return info.valid ? info : null;
 }
 /**
@@ -399,11 +449,22 @@ export async function getPass(req: AnyRequest, opts: ClientOptions & { cookieNam
  * agent APIs. Returns the pass info when allowed, else { valid:false, allowed:false, code, reason }.
  */
 export async function authorize(req: AnyRequest, resource: Resource, opts: ClientOptions & { cookieName?: string } = {}): Promise<PassInfo> {
-  const { cookieName, ...c } = opts;
-  if (!resource || !resource.path || !resource.method) throw new TokenlockError('authorize() needs { path, method }.', 0, 'resource_required');
-  const pass = readPass(req, cookieName || DEFAULT_COOKIE);
+  const { client: c, extra } = splitAuthOptions(opts as any, 'authorize', ['cookieName']);
+  for (const k of RESOURCE_KEYS) if (k in c) throw badResource('authorize: pass the resource as the second argument.');
+  checkClientOptions(c, 'authorize');
+  const res = authorizeResource(resource);
+  if (res === 'bad_path') return { valid: false, allowed: false, code: 'bad_path', reason: 'Not a valid path.' };
+  const pass = readPass(req, extra.cookieName || DEFAULT_COOKIE);
   if (!pass) return { valid: false, allowed: false, code: 'signin_required', reason: 'Sign in first.' };
-  return client(c).verifyPass(pass, resource, { strict: true, cache: c.cache ?? false });
+  const { strict, cache, ...rest } = c;
+  return client(rest).verifyPass(pass, res, { strict: true, cache: cache ?? false });
+}
+/** authorize() always names an action: { path, method } required, identity-only refused. */
+export function authorizeResource(resource: unknown): Resource | 'bad_path' {
+  let res: Resource | null;
+  try { res = validateResource(resource, 'authorize'); } catch (e: any) { if (e?.code === 'bad_path') return 'bad_path'; throw e; }
+  if (!res) throw badResource('authorize: an action needs { path, method }; use getPass(req, { identityOnly: true }) for identity only.');
+  return res;
 }
 
 export interface CookieOptions { name?: string; path?: string; secure?: boolean; maxAgeSeconds?: number; sameSite?: 'Lax' | 'Strict' }
