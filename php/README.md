@@ -8,6 +8,26 @@ This drop-in works on PHP 7.4 or newer (shared hosting and cPanel are fine). It 
 
 Which tokens unlock the site is set in your [TOKENLOCK dashboard](https://proveitonchain.com/tokenlock/dashboard), not in this code.
 
+## Upgrading to 0.4.0 (breaking: explicit route authorization)
+
+0.4.0 fixes [security advisory 2026-11-18](https://proveitonchain.com/security/advisories/2026-11-18): no page path,
+method or environment is authorized unless a policy explicitly permits it. Identity and token checks are unchanged.
+
+- `tokenlock_verify_pass($pass, $resource)` on a **token-only** site (registered keys off) now answers
+  `valid => false, allowed => false, code => 'policy_required', identity_valid => true` (0.3.0: `valid => true`,
+  nothing checked). Without a resource (identity only) it still answers `valid => true`.
+- `tokenlock_require()`, `tokenlock_protect()` and the early block: on a token-only site set `'token_only' => true` in
+  `config.php` (or `TOKENLOCK_TOKEN_ONLY=1`). The new `config.sample.php` has it on. Without it, locked pages answer
+  **403 policy_required** (written once to the PHP error log). With it, if the site later turns on registered keys,
+  pages are still checked against the key's routes.
+- Self-verify: `tokenlock_sv_verify_local_pass()` with a resource and no policy, or with a token-mode policy, answers
+  `policy_required` (0.3.0: `allowed => true`).
+- Sites with registered keys: no change.
+
+To upgrade: replace the files in `tokenlock/` (keep your `config.php`), and add `'token_only' => true,` to your
+`config.php` if any holder should open every locked page. The hosted API keeps giving PHP 0.2.x/0.3.x the old answer
+(marked with a `warning`) so existing sites keep working until they upgrade; those versions remain affected.
+
 ## What you upload
 
 Unzip this package and put both folders in your site’s web root (`public_html` on A2 Hosting / cPanel):
@@ -127,7 +147,7 @@ MIT © Prove It Onchain
 
 ## Enterprise access controls (0.2.0)
 
-For sites with registered keys turned on (Business and Enterprise), `tokenlock_require()` now sends the page path and method with each check, so the key's routes, methods, environment and expiry are enforced and revocations take effect within seconds (the answer is cached for at most `cache_max_s`, 5 s). A signed-in key that isn't allowed on a page gets a 403 "Not allowed here" page instead of a sign-in redirect. Token-only sites behave exactly as before.
+For sites with registered keys turned on (Business and Enterprise), `tokenlock_require()` now sends the page path and method with each check, so the key's routes, methods, environment and expiry are enforced and revocations take effect within seconds (the answer is cached for at most `cache_max_s`, 5 s). A signed-in key that isn't allowed on a page gets a 403 "Not allowed here" page instead of a sign-in redirect. Token-only sites have no per-page rules: since 0.4.0 they need `'token_only' => true` (see Upgrading to 0.4.0), and `tokenlock_verify_pass()` with a path on a token-only site answers `policy_required`.
 
 ```php
 // config.php (optional)
@@ -214,6 +234,10 @@ $v = tokenlock_sv_verify_local_pass($_COOKIE['tl_pass'] ?? '', array('pass_secre
 To check registered keys offline, use `tokenlock_sv_signed_policy(array('site_id' => …, 'secret_key' => …, 'public_keys' => array($kid => $key), 'cache_dir' => …))`.
 It caches the BIP-340-signed bundle on disk, refreshes it every 60 s, and rejects rollbacks. If refreshes fail, it keeps
 using the cached bundle until that bundle expires, then fails closed. You can also use `tokenlock_sv_local_policy(...)`.
+
+A resource always needs a registered-keys policy: with no policy, or a token-mode policy, `tokenlock_sv_verify_local_pass()` answers `policy_required` (0.4.0; `identity_valid` says whether the pass itself is good).
+
+Shared authorization matrix (same cases as the Node SDK and the hosted API): `php test/authz-matrix.php`.
 
 Tests: `php test/self-verify.php` covers signatures (the 396 shared vectors), the policy bundle, access rules, replay,
 providers, the policy cache, and passes moving between Node and PHP. `node test/early.mjs` tests the early block over HTTP.

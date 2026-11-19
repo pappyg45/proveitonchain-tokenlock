@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.4.0 (security, breaking: explicit route authorization)
+
+Fixes [security advisory 2026-11-18](https://proveitonchain.com/security/advisories/2026-11-18). No route, method or
+environment is authorized unless a policy explicitly permits it, in the hosted client, the middleware, self-verify and
+the Cloudflare worker example. Identity-only checks are unchanged. See "Upgrading to 0.4.0" in the README.
+
+- **Hosted verification:** a resource on a token-only site (no registered keys, so no route policy) now answers
+  `{ valid: false, allowed: false, code: 'policy_required', identity_valid: true }`. 0.3.x accepted the API's
+  `allowed: true` answer, so `verifyPass(pass, { path })`, `getPass(req, { path })` and `authorize(...)` reported a route
+  as authorized when nothing had checked it. The SDK enforces this itself (strict and loose), and the hosted API now
+  answers the same way to 0.4.0 clients and direct calls.
+- **Middleware (Next, Express):** new `tokenOnly` option. **Breaking:** without it, a token-only site answers
+  `403 policy_required` on protected paths (logged once). With `tokenOnly: true` the middleware checks identity and
+  token; if the site has registered keys it still checks the route.
+- **Self-verify:** a token-mode policy with a `resource` answers `policy_required` (0.3.3 and earlier: `allowed: true`).
+  Results carry `identity_valid`.
+- **Cloudflare worker example:** same rules; `TOKENLOCK_TOKEN_ONLY = "1"` for token-only sites. Client header `cf-worker/0.4.0`.
+- Strict checks no longer report `code: 'ok'` on an answer with `allowed: false` (now `not_allowed`).
+- Tests: shared authorization matrix `test/fixtures/authz-matrix.json` (11 cases), run by Node self-verify,
+  PHP self-verify, and the hosted API through the raw API, this SDK's client and the PHP client.
+
+## 0.3.3 (fixes from external review)
+
+- **Self-verify: a `resource` now requires a `policy`.** `verifyLocalPass(pass, { passSecret, resource })` with no `policy` returned `allowed: true` in 0.3.2, which could be read as "route, method and environment were checked". It now returns `{ valid: false, allowed: false, code: 'policy_required' }` (a configuration error, never an allow). Identity-only checks (no `resource`) still work without a policy.
+- **`signedPolicy` retry backoff.** After a failed load, the next attempt waits 5 s, doubling up to `refreshSeconds` (options `retryMinSeconds`, `retryMaxSeconds`); calls in between answer at once from the cached bundle or with the last error, and concurrent calls share one in-flight load. Three immediate calls during an initial outage now make one load attempt (0.3.2: three). New `status()` reports `failures`, `last_error` and `next_retry_at`. Fixes the 0.3.0 known limit below.
+- Docs: the revocation table is split into key revocation, permission changes and holdings changes. Only admin changes to registered keys are 0 s on hosted strict / `cache: false`; token transfers follow the hosted `recheck_holdings_s` (300 s default) even with `cache: false`, and self-verify passes keep their holdings until they expire.
+- Docs: the enterprise self-verify example comment no longer says failed refreshes retry every 60 s.
+- Docs: `verifyPass` lists every `TokenlockError` (missing configuration, non-2xx HTTP responses, network errors and timeouts), with a custom-server error-handling example.
+- Tests: `test/review3.test.mjs` (9 tests) reproduces each finding against 0.3.2 and covers the fixes.
+
 ## 0.3.2 (docs)
 
 - Docs: corrected strict-mode logging wording.

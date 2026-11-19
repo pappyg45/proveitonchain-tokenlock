@@ -22,6 +22,33 @@ NEXT_PUBLIC_TOKENLOCK_SITE_KEY=pk_…
 TOKENLOCK_SECRET_KEY=sk_…
 ```
 
+## Upgrading to 0.4.0 (breaking: explicit route authorization)
+
+0.4.0 fixes [security advisory 2026-11-18](https://proveitonchain.com/security/advisories/2026-11-18): **no route,
+method or environment is authorized unless a policy explicitly permits it.** Identity and token checks are unchanged.
+
+| You call | 0.3.x | 0.4.0 |
+| --- | --- | --- |
+| `verifyPass(pass)` / `getPass(req)` with no resource (identity only) | allowed | allowed (unchanged) |
+| A resource (`path`, `method` or `environment`) on a **token-only** site (registered keys off) | `allowed: true`, nothing checked | `{ valid: false, allowed: false, code: 'policy_required', identity_valid: true }` |
+| A resource on a site with **registered keys** | checked against the key | checked against the key (unchanged) |
+| Self-verify `verifyLocalPass` with a resource and no `policy` (0.3.2 and earlier) or a token-mode policy | `allowed: true` | `policy_required` |
+| Next/Express middleware on a token-only site | every holder let in | **`403 policy_required`** unless you set `tokenOnly: true` |
+
+What to do:
+- **Token-only site using the middleware** (any holder may open every protected path): add `tokenOnly: true`. The
+  middleware then checks identity and token only. If the site later turns on registered keys, every request is
+  still checked against the key's routes (`tokenOnly` can't bypass a route policy).
+- **Your own calls with a resource** on a token-only site: drop the resource (identity only), or turn on registered
+  keys and grant the routes. Treat `policy_required` as a configuration error (the middleware answers 403).
+- **Self-verify**: pass a registered-keys `policy` whenever you pass a `resource`; use identity-only checks otherwise.
+- **PHP drop-in**: upgrade to PHP 0.4.0 and set `'token_only' => true` (or `TOKENLOCK_TOKEN_ONLY=1`) on token-only sites.
+- **Cloudflare worker example**: set `TOKENLOCK_TOKEN_ONLY = "1"` on token-only sites.
+
+The hosted API answers `policy_required` to 0.4.0 clients and to direct API calls. SDK 0.2.x/0.3.x and PHP 0.2.x/0.3.x
+clients still get the old `allowed: true` answer, now marked `policy: 'none'` with a `warning`, so existing token-only
+sites keep working until they upgrade; those versions remain affected.
+
 ## 2. Install
 
 ```bash
@@ -38,6 +65,7 @@ import { tokenlock } from '@proveitonchain/tokenlock/next';
 export default tokenlock({
   protect: ['/members/:path*'], // TOKENLOCK decides which paths are protected (canonical, case-insensitive)
   signInPage: '/signin',
+  tokenOnly: true, // any holder may open every protected path (no registered keys). Leave out to require route rules.
 });
 
 // Keep this broad. Next's own matcher is case-sensitive and would skip /MEMBERS
@@ -88,7 +116,7 @@ import express from 'express';
 import { tokenlock } from '@proveitonchain/tokenlock/express';
 
 const app = express();
-app.use(tokenlock({ protect: ['/members/:path*'], signInPage: '/signin' }));
+app.use(tokenlock({ protect: ['/members/:path*'], signInPage: '/signin', tokenOnly: true }));
 app.get('/members', (req, res) => res.send(`Hi ${req.tokenlock.address}`));
 ```
 
@@ -120,7 +148,7 @@ await client.request('POST', '/api/v1/gate/verify', { pass });
 
 | Function | What it does |
 | --- | --- |
-| `verifyPass(pass, { secretKey })` | `{ valid, address, assets_held, site_id, expires_at }` or `{ valid: false, code }`. Throws `TokenlockError` only if the API can't be reached. |
+| `verifyPass(pass, { secretKey })` | `{ valid, address, assets_held, site_id, expires_at }` or `{ valid: false, code }`. A bad, expired or out-of-scope pass is an answer, not an exception. Throws `TokenlockError` when there is no answer: missing configuration (`no_secret_key`; `no_fetch` on runtimes without `fetch`), a non-2xx HTTP response from the API (`status` = HTTP status, e.g. 429 or 5xx, `code` from the API), or a network error or timeout (`network`, status 0). See [Errors](#errors-tokenlockerror). |
 | `getPass(req, opts?)` | The verified pass from the request cookie, or `null`. **Identity only** unless you pass `{ path, method, environment }`. Works with Fetch `Request`, `NextRequest`, Express/Node `req`. |
 | `authorize(req, { path, method, environment })` | Strict, uncached check for one action (agent APIs, sensitive operations). `{ valid: true, allowed: true, … }` or `{ valid: false, allowed: false, code, reason }`. |
 | `canonicalPath(path)` | The path used for matching (see Path rules), or `null` to reject. |
@@ -130,6 +158,41 @@ await client.request('POST', '/api/v1/gate/verify', { pass });
 | `createChallenge({ siteKey, origin })` | Starts a sign-in: `{ challenge_id, message, assets }`. |
 | `TokenlockClient` | `verifyPass`, `createChallenge`, `signIn`, and `request()` for any `/api/v1` call (sends `Authorization: Bearer sk_…`). |
 | `passCookie`, `clearPassCookie`, `readPass`, `createMatcher`, `safeNext` | Helpers used by the adapters. |
+
+### Errors (`TokenlockError`)
+
+`verifyPass`, `getPass`, `authorize`, `createChallenge` and `TokenlockClient.request` throw `TokenlockError` (`{ message, status, code }`) when they can't get an answer. A denied pass is never thrown; it comes back as `{ valid: false, code }`.
+
+| When | `status` | `code` | `isUnavailable(e)` |
+| --- | --- | --- | --- |
+| No secret key (option or `TOKENLOCK_SECRET_KEY`); no site key for `createChallenge` | 0 | `no_secret_key` / `no_site_key` | false (fix your config) |
+| No `fetch` in this runtime (Node < 18 without `{ fetch }`), thrown when the client is created | 0 | `no_fetch` | true |
+| `authorize()` without `{ path, method }` | 0 | `resource_required` | true |
+| The API answered with a non-2xx status (400, 401, 402, 429 rate limited, 5xx …) | the HTTP status | the API's `code`, if any | true only for 5xx |
+| Network error or timeout (`timeoutMs`, default 8000) | 0 | `network` | true |
+
+Custom server (Express-style handler; the same pattern works in any framework): fail closed on every error, and tell "can't check right now" apart from a config bug.
+
+```ts
+import { verifyPass, TokenlockError, isUnavailable, denialStatus } from '@proveitonchain/tokenlock';
+
+async function requireAccess(req, res, next) {
+  const pass = readCookie(req, 'tokenlock_pass');
+  try {
+    const v = await verifyPass(pass, { secretKey: process.env.TOKENLOCK_SECRET_KEY, path: req.path, method: req.method });
+    if (v.valid && v.allowed !== false) { req.tokenlock = v; return next(); }
+    return res.status(denialStatus(v.code)).json({ code: v.code, reason: v.reason, correlation_id: v.correlation_id });
+  } catch (e) {
+    if (!(e instanceof TokenlockError)) throw e;
+    if (isUnavailable(e)) {                          // network, timeout, 5xx: deny, ask the client to retry
+      res.set('Retry-After', '5');
+      return res.status(503).json({ code: 'tokenlock_unavailable' });
+    }
+    console.error('[tokenlock]', e.status, e.code, e.message); // no_secret_key, 401/402/429 …: config or plan problem
+    return res.status(e.status === 429 ? 429 : 500).json({ code: 'tokenlock_error' });
+  }
+}
+```
 
 ### Options (Next and Express)
 
@@ -151,6 +214,7 @@ await client.request('POST', '/api/v1/gate/verify', { pass });
 | `apiPaths` | none | Paths that always get JSON 401/403 (API mode) |
 | `caseSensitive` | `false` | `/ADMIN` is the same as `/admin` unless set |
 | `cache` | `true` | `false` asks the API on every request |
+| `tokenOnly` | `false` | 0.4.0. Token-only site: any holder may open every protected path (identity + token check). Without it, a site with no route policy answers `403 policy_required`. On a site with registered keys, routes are still enforced |
 
 ### `<SignInWithBitcoin />` props
 
@@ -180,7 +244,7 @@ MIT © Prove It Onchain
 
 ## Enterprise access controls (0.3.0)
 
-Sites with **registered keys** turned on (Business, Enterprise, or a pilot) check every request against the key's routes, methods, environment and expiry. In **strict** mode (the 0.3.0 default) the SDK never caches registered-key answers, so an admin revoke is visible on the next request. A token transfer is noticed on the next holdings re-check (at most `recheck_holdings_s`, 300 seconds by default), not immediately. Organizations are optional unless the site turns on `require_org`. The same site secret verifies passes and manages access, organizations and keys; separate credentials are planned, not shipped. Nothing changes for token-only sites. Full docs: https://proveitonchain.com/docs/enterprise
+Sites with **registered keys** turned on (Business, Enterprise, or a pilot) check every request against the key's routes, methods, environment and expiry. In **strict** mode (the 0.3.0 default) the SDK never caches registered-key answers, so an admin revoke or permission change is visible on the next request. A token transfer is noticed on the next hosted holdings re-check (at most `recheck_holdings_s`, 300 seconds by default), not immediately, even with `cache: false`. See [Revocation window](#revocation-window). Organizations are optional unless the site turns on `require_org`. The same site secret verifies passes and manages access, organizations and keys; separate credentials are planned, not shipped. Token-only sites (registered keys off) have no route rules: since 0.4.0 a check that names a path, method or environment answers `policy_required`; use identity-only checks or the middleware's `tokenOnly: true`. Full docs: https://proveitonchain.com/docs/enterprise
 
 ```js
 const info = await verifyPass(pass, { secretKey, path: '/api/partner/prices', method: 'GET', environment: 'production' });
@@ -215,15 +279,32 @@ An answer counts only if it is complete and says `allowed: true` for **exactly**
 
 ### Revocation window
 
-| Setup | How long a revoked key, expired key, revoked entitlement or changed permission can still get in |
+Three kinds of change reach your server at different speeds. Only admin changes to registered keys can be **0 s**.
+
+**1. Key revocation and expiry** (admin revokes or expires a key, suspends its organization, or revokes an asset):
+
+| Setup | How long the old access can still get in |
 | --- | --- |
-| **Hosted verification**, strict (default), registered keys | **0**: never cached, every protected request asks the API |
+| **Hosted verification**, strict (default), registered keys | **0 s**: never cached; every protected request asks the API, which reads the key live |
 | **Hosted verification**, `strict: false`, registered keys | up to **5 s** per server process (the API's `cache_max_s`) |
-| **Hosted verification**, token-only sites (no registered keys) | Holdings are checked at sign-in; a pass stays good until it expires (cached up to 60 s) |
-| **Hosted verification**, `cache: false` (any mode) | 0 |
+| **Hosted verification**, `cache: false`, registered keys | **0 s** for these admin changes (holdings changes still follow table 3) |
+| **Hosted verification**, token-only sites (no registered keys) | No keys to revoke (access controls are off). An existing pass stays good until it expires; good answers are cached in the SDK up to 60 s unless `cache: false` |
 | 0.1.x SDKs (hosted) | up to 60 s |
-| **Self-verify**, signed policy bundle | On the next successful policy refresh (**60 seconds** by default). If refreshes fail, the cached bundle is used until it expires (**10 minutes** / 600 s by default, set by the bundle's `ttl`), then access fails closed (`policy_expired`). |
-| **Self-verify**, `localPolicy` | On your next `get()` of that policy (you control how fresh it is). |
+| **Self-verify**, signed policy bundle | On the next successful policy refresh (**60 s** by default). If refreshes fail, the cached bundle is used until it expires (**600 s** by default, the bundle's `ttl`), then access fails closed (`policy_expired`) |
+| **Self-verify**, `localPolicy` | On your next `get()` of that policy (you control how fresh it is) |
+
+**2. Permission changes** (routes, methods, environments, key expiry date): same timing as table 1, for each setup.
+
+**3. Holdings changes** (the token is transferred away from the wallet):
+
+| Setup | When the transfer is noticed |
+| --- | --- |
+| **Hosted verification**, registered keys (strict or `cache: false`) | On the next hosted holdings re-check: up to `recheck_holdings_s` (**300 s** by default; 60–86400, or 0 = only at sign-in) after the last successful check. The key is then paused (`pending_approval`). `cache: false` only turns off the SDK's own cache; it does **not** shorten this hosted re-check interval |
+| **Hosted verification**, registered keys, `strict: false` | Same, plus up to 5 s of SDK cache |
+| **Hosted verification**, token-only sites | Holdings are checked at sign-in only. An existing pass stays good until it expires (15 min by default, at most 24 h); the next sign-in is refused |
+| **Self-verify** | Holdings are read at sign-in (`verifySignIn`). `verifyLocalPass` does not re-read them, so a pass stays good until it expires (`pass_ttl_s`, 900 s by default, capped by the key and agent TTLs). The policy bundle carries key status, not live holdings; the hosted re-check does not apply. Use short pass lifetimes, or re-check holdings yourself, if a transfer must cut access sooner |
+
+During a holdings-source outage, hosted verification keeps passes younger than 2 × `recheck_holdings_s` working unless `require_fresh_holdings` is on. See https://proveitonchain.com/docs/enterprise#timing.
 
 `clearCache(pass)` drops every cached answer for that pass, for all routes.
 
@@ -266,7 +347,9 @@ const policy = signedPolicy({
   siteId: process.env.TOKENLOCK_SITE_ID,
   secretKey: process.env.TOKENLOCK_SECRET_KEY, // fetches GET /api/v1/tokenlock/access/policy
   publicKeys,                                  // unknown kid or a bad signature → fail closed
-  refreshSeconds: 60,                          // default; retries this often if a refresh fails
+  refreshSeconds: 60,                          // default: pull a fresh bundle every 60 s
+  // retryMinSeconds: 5, retryMaxSeconds: 60,  // defaults: after a failed load, wait 5 s, 10 s, 20 s … (max 60 s)
+                                               // before the next attempt; calls in between don't hit the network
   // ttlSeconds: 600,                          // optional; the API's default bundle lifetime is 600 s
 });
 const store = fileNonceStore('/var/lib/tokenlock-nonces');
@@ -285,13 +368,22 @@ const v = await verifyLocalPass(r.pass, {
   resource: { path: '/api/reports/q3', method: 'GET', environment: 'production' },
 });
 // Enforce both: valid = authentic, unexpired pass still granted; allowed = this resource is in scope.
-if (!(v.valid && v.allowed)) deny(v.code, v.reason); // route_not_allowed, policy_expired, …
+if (!(v.valid && v.allowed)) deny(v.code, v.reason); // route_not_allowed, policy_expired, policy_required, …
 ```
 
 Registered keys offline: `signedPolicy({ siteId, secretKey, publicKeys: { kid: key } })` pulls a BIP-340-signed bundle
 (Enterprise or pilot), checks it against the key you pinned from `/.well-known/tokenlock-policy-keys.json`, refreshes
-every 60 s, uses the cached bundle while refreshes fail until it expires (default 600 s), then fails closed. Or use
-`localPolicy(...)` if you keep the policy yourself.
+every 60 s, uses the cached bundle while refreshes fail until it expires (default 600 s), then fails closed. After a
+failed load it backs off (5 s, doubling, capped at `refreshSeconds`) and concurrent calls share one in-flight load, so an
+outage doesn't add a slow request to every call. `policy.status()` reports `failures`, `last_error` and `next_retry_at`
+for health checks. Or use `localPolicy(...)` if you keep the policy yourself.
+
+**A `resource` needs a policy.** `verifyLocalPass(pass, { passSecret, resource })` without `policy` answers
+`{ valid: false, allowed: false, code: 'policy_required' }`: route, method and environment rules live in the policy, so
+they can't be checked without one (0.3.2 answered `allowed: true`). Leave out `resource` for an identity-only check.
+A token-mode policy (registered keys off) has no per-route rules either, so since 0.4.0 a `resource` with it also
+answers `policy_required` (0.3.3 and earlier: `allowed: true`). The answer includes `identity_valid: true` when the pass
+itself is good.
 
 | Mode | You still trust |
 |---|---|

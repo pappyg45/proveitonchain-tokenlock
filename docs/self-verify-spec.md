@@ -1,6 +1,6 @@
 # TOKENLOCK self-verify, spec v1
 
-Status: preview (SDK 0.3.0, PHP drop-in 0.3.0). Enterprise. Web version: https://proveitonchain.com/docs/self-verify
+Status: preview (SDK 0.4.0, self-verify since 0.3.0; PHP drop-in 0.4.0). Enterprise. Web version: https://proveitonchain.com/docs/self-verify
 
 Self-verify lets **your server** run "Sign in with your Token" from start to finish. You issue the challenge and keep
 the nonce. You check the wallet signature locally, and you read holdings from a source you pick. For the sign-in itself,
@@ -97,9 +97,14 @@ A revocation reaches your server on its **next successful refresh**.
 
 | Setting | Default | Effect |
 |---|---|---|
-| `refreshSeconds` (`refresh_seconds`) | 60 | How often a fresh bundle is pulled. This is the normal worst case for revocation. |
+| `refreshSeconds` (`refresh_seconds`) | 60 | How often a fresh bundle is pulled. This is the normal worst case for key revocation and permission changes. |
+| `retryMinSeconds` / `retryMaxSeconds` | 5 / `refreshSeconds` | After a failed load, the next attempt waits 5 s, then 10 s, 20 s … up to the max. Calls in between don't hit the network; concurrent calls share one in-flight load. A success resets the backoff. |
 | bundle `ttl` | 600 s (60–3600) | If refreshes fail, the cached bundle is used until it expires. This is the worst case during an outage. |
 | after expiry | — | Every sign-in and pass check fails closed (`policy_expired`) until a refresh works. |
+
+Holdings changes (a token transferred away) are a separate clock: holdings are read at sign-in, and `verifyLocalPass`
+does not re-read them, so an existing pass keeps working until it expires (`pass_ttl_s`, default 900 s). The bundle
+carries key status, not live holdings, and the hosted `recheck_holdings_s` re-check does not apply to self-verify.
 
 The hosted mode checks revocation on every verify. Self-verify trades that for not depending on us; choose `ttl`
 to match how quickly a revoked key must stop working.
@@ -113,6 +118,12 @@ in an HttpOnly cookie or an Authorization header. Lifetime is the challenge's `p
 the key's `pass_ttl_s` and the agent/default TTLs in the policy, and by the key's `expires_at`.
 `verifyLocalPass(token, { passSecret, policy?, resource? })` gives one of these results:
 - `valid:false`: forged, expired, revoked, or the policy is unavailable. Answer 401.
+- `valid:false, allowed:false, code:"policy_required"`: a `resource` was given without a `policy`, or with a
+  token-mode policy (no route rules). This is a configuration error (answer 500, or 403 in middleware, and fix the
+  config): route, method and environment rules live in a registered-keys policy. `identity_valid` is `true` when the
+  pass itself is authentic and unexpired. Leave out `resource` for an identity-only check, which needs no policy.
+  (No policy: Node SDK 0.3.3+, PHP 0.4.0+. Token-mode policy: Node SDK 0.4.0+, PHP 0.4.0+. Earlier versions answered
+  `allowed: true`; see advisory 2026-11-18.)
 - `valid:true, allowed:false`: authentic but outside this route, method or environment (`route_not_allowed`, …). Answer 403.
 - `valid:true, allowed:true`: allow.
 
@@ -133,7 +144,7 @@ The shared test vectors are in `test/fixtures/path-vectors.json`.
 
 Every one of these means **deny**: an unknown or reused nonce, an expired challenge, a bad signature, an unsupported
 address, any holdings error or disagreement, a policy that is unavailable or expired, a bad bundle signature, an
-unknown `kid`, the wrong site, a rollback, a bad path or a bad pass. No option turns any of these into "allow".
+unknown `kid`, the wrong site, a rollback, a bad path, a bad pass, or a resource check with no policy configured. No option turns any of these into "allow".
 
 ## 9. Test vectors
 

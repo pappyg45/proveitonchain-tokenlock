@@ -180,6 +180,19 @@ $x = tokenlock_sv_verify_local_pass($SI['node_pass']['token'], $withPol + array(
 same(array($x['valid'], $x['allowed'], $x['code']), array(true, false, 'route_not_allowed'), 'out-of-scope route: valid but not allowed (403)');
 $revoked = tokenlock_sv_local_policy(array('keys' => array(array('id' => 'key_a', 'address' => $A, 'status' => 'revoked'))));
 same(tokenlock_sv_verify_local_pass($SI['node_pass']['token'], array('policy' => $revoked) + $withPol)['code'], 'key_revoked', 'revocation in the policy kills a live pass');
+// advisory 2026-11-18: a resource is allowed only when a route policy explicitly permits it (PHP 0.4.0)
+$noPol = array('pass_secret' => $secret, 'now' => $SI['now'] + 1000);
+foreach (array(array('path' => '/admin', 'method' => 'POST'), array('path' => '/api/data'), array('method' => 'GET'), array('environment' => 'production'), array()) as $res) {
+    $x = tokenlock_sv_verify_local_pass($SI['node_pass']['token'], $noPol + array('resource' => $res));
+    same(array($x['valid'], $x['allowed'], $x['code'], $x['identity_valid'], $x['address']), array(false, false, 'policy_required', true, $A), 'resource without a policy → policy_required: ' . json_encode($res));
+}
+same(tokenlock_sv_verify_local_pass($SI['node_pass']['token'], $noPol)['code'], 'ok', 'identity-only check without a policy still works');
+same(tokenlock_sv_verify_local_pass($SI['node_pass']['token'], $noPol + array('resource' => null))['code'], 'ok', 'resource => null is identity-only');
+same(tokenlock_sv_verify_local_pass($forged, $noPol + array('resource' => array('path' => '/a')))['code'], 'bad_pass', 'forged pass reported before the policy check');
+$tokenMode = tokenlock_sv_local_policy(array('mode' => 'token'));
+$x = tokenlock_sv_verify_local_pass($SI['node_pass']['token'], array('policy' => $tokenMode) + $withPol + array('resource' => array('path' => '/api/data', 'method' => 'GET')));
+same(array($x['valid'], $x['allowed'], $x['code'], $x['identity_valid']), array(false, false, 'policy_required', true), 'token-mode policy + resource → policy_required');
+same(tokenlock_sv_verify_local_pass($SI['node_pass']['token'], array('policy' => $tokenMode) + $withPol)['code'], 'ok', 'token-mode policy, identity-only → ok');
 $other = tokenlock_sv_local_policy(array('keys' => array(array('id' => 'key_b', 'address' => $A, 'status' => 'active'))));
 same(tokenlock_sv_verify_local_pass($SI['node_pass']['token'], array('policy' => $other) + $withPol)['code'], 'not_registered', 'pass bound to its key id');
 throws_code(function () {

@@ -5,6 +5,8 @@ compatibility_date = "2026-11-01"
 [vars]
 TOKENLOCK_SITE_KEY = "pk_your_site_key"
 TOKENLOCK_ENVIRONMENT = "production"
+# Token-only site (registered keys off): every token holder may open the protected paths. Without it, 0.4.0 answers 403 policy_required.
+# TOKENLOCK_TOKEN_ONLY = "1"
 # wrangler secret put TOKENLOCK_SECRET_KEY
 
 # Route the Worker in front of your site, e.g.:

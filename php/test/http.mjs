@@ -56,6 +56,7 @@ const php = spawn(PHP, ['-S', '127.0.0.1:0', '-t', root], {
     TOKENLOCK_SITE_KEY: PK,
     TOKENLOCK_SECRET_KEY: SK,
     TOKENLOCK_CACHE_DIR: path.join(root, 'tokenlock', 'cache'),
+    TOKENLOCK_TOKEN_ONLY: '1', // 0.4.0: the mock is a token-only site; every holder may open the holders page
   },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
@@ -113,6 +114,15 @@ try {
     const t = await r.text();
     assert.match(t, /bc1qtest/);
     assert.match(t, /You(?:'|\&rsquo;|&apos;).{0,2}re in/);
+  });
+  await step('0.4.0: token-only site without token_only → holders page 403 policy_required (no route policy)', async () => {
+    const port3 = 18000 + Math.floor(Math.random() * 900);
+    const p3 = spawn(PHP, ['-d', 'display_errors=0', '-S', `127.0.0.1:${port3}`, '-t', root], { cwd: root, env: { ...process.env, TOKENLOCK_API: API, TOKENLOCK_SITE_KEY: PK, TOKENLOCK_SECRET_KEY: SK, TOKENLOCK_CACHE_DIR: path.join(root, 'tokenlock', 'cache'), TOKENLOCK_TOKEN_ONLY: '' }, stdio: 'ignore' });
+    try {
+      await new Promise((r) => setTimeout(r, 500));
+      const r = await fetch(`http://127.0.0.1:${port3}/holders/`, { redirect: 'manual', headers: { cookie: 'tokenlock_pass=' + GOOD, accept: 'application/json' } });
+      assert.equal(r.status, 403); assert.equal((await r.json()).code, 'policy_required');
+    } finally { p3.kill(); }
   });
   await step('forged pass → POST session.php is 401, no cookie', async () => {
     const r = await fetch(LOCAL + '/tokenlock/session.php', {

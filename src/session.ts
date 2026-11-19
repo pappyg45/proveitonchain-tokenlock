@@ -49,6 +49,13 @@ export interface GuardOptions extends SessionOptions {
   environment?: string;
   /** Send the request path and method with each pass check (default true). Required in strict mode. */
   checkResource?: boolean;
+  /**
+   * Token-only sites (registered keys off): set `true` to state that every holder of your site's token may open every
+   * protected path. Passes are then checked for identity and token only. If the site has registered keys, the route,
+   * method and environment are still checked. Without it, 0.4.0 denies protected paths on token-only sites with
+   * `policy_required` (403), because no route policy explicitly permits them.
+   */
+  tokenOnly?: boolean;
   /** Fail open when the TOKENLOCK API is down (default false). Not allowed in strict mode. */
   failOpen?: boolean;
   /** Match paths case-sensitively (default false: '/ADMIN' is the same as '/admin'). */
@@ -75,6 +82,7 @@ export function createGuard(opts: GuardOptions, adapter = 'tokenlock') {
   const isApiPath = opts.apiPaths ? createMatcher(opts.apiPaths, cs) : undefined;
   const name = opts.cookieName || DEFAULT_COOKIE;
   const client = new TokenlockClient({ ...opts, strict });
+  let warnedNoPolicy = false;
   return {
     strict, client, cookieName: name,
     async decide(r: { rawPath: string; search?: string; method?: string; accept?: string | null; pass: string | null; url: string }): Promise<GuardDecision> {
@@ -86,7 +94,16 @@ export function createGuard(opts: GuardOptions, adapter = 'tokenlock') {
       const resource = opts.checkResource === false ? undefined : { path: canon, method, environment: opts.environment };
       let info: PassInfo | null = null;
       if (r.pass) {
-        try { info = await client.verifyPass(r.pass, resource, { strict }); }
+        try {
+          if (opts.tokenOnly) {
+            // Identity + token check; if the site turns out to have a route policy (registered keys), enforce it.
+            info = await client.verifyPass(r.pass, undefined, { strict });
+            if (info.valid && info.access !== undefined && resource) info = await client.verifyPass(r.pass, resource, { strict });
+          } else {
+            info = await client.verifyPass(r.pass, resource, { strict });
+            if (info.code === 'policy_required' && info.identity_valid && !warnedNoPolicy) { warnedNoPolicy = true; if (typeof console !== 'undefined') console.warn(`[TOKENLOCK] ${adapter}: this site has no route policy (registered keys are off), so protected paths are denied with policy_required. If every token holder may open them, set tokenOnly: true. See https://proveitonchain.com/security/advisories/2026-11-18`); }
+          }
+        }
         catch (e) {
           if (!isUnavailable(e)) throw e;
           if (opts.failOpen && !strict) return { action: 'allow', info: null, failOpen: true };
