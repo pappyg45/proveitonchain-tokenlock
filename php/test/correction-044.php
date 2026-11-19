@@ -110,6 +110,12 @@ foreach (array('missing' => null, 'empty' => '', 'short' => 'short') as $name =>
     ck(empty($r['valid']) && empty($r['allowed']) && ($r['code'] ?? '') === 'bad_secret', "pass_secret $name → bad_secret (never valid)", json_encode($r));
 }
 
+echo "A6 a malformed path never answers valid => true\n";
+foreach (array('garbage', $pass()) as $tok) foreach (array('/a/../admin', 'admin', '/%2e%2e/admin', '/a%2fb') as $p) {
+    $r = tokenlock_sv_verify_local_pass($tok, array('pass_secret' => $S, 'resource' => array('path' => $p, 'method' => 'GET')));
+    ck($r['valid'] === false && $r['allowed'] === false && $r['code'] === 'bad_path', substr($tok, 0, 8) . " $p → valid false, bad_path", json_encode($r));
+}
+
 echo "G4 policy_required reason names identity_only\n";
 $r = tokenlock_sv_verify_local_pass($pass(), array('pass_secret' => $S, 'resource' => array('path' => '/x', 'method' => 'GET')));
 ck(strpos($r['reason'], 'drop the resource') === false && strpos($r['reason'], 'identity_only') !== false, 'reason says identity_only => true', $r['reason']);

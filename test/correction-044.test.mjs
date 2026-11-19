@@ -139,6 +139,16 @@ test('A1 verifyLocalPass(): an empty or short passSecret is a config error, neve
   assert.equal(u.code, 'bad_secret', 'missing passSecret answers bad_secret instead of throwing');
 });
 
+// ---------------------------------------------------------------- A6: found by the widened audit (fuzz-exports): early bad_path answered valid: true
+test('A6 verifyLocalPass(): a malformed path never answers valid: true (the pass was not even checked)', async () => {
+  for (const token of ['garbage', pass()]) for (const path of ['/a/../admin', 'admin', '/%2e%2e/admin', '/a%2fb', '/a\\b']) {
+    const r = await SV.verifyLocalPass(token, { passSecret: SECRET, resource: { path, method: 'GET' } });
+    assert.deepEqual([r.valid, r.allowed, r.code], [false, false, 'bad_path'], `${token.slice(0, 8)} ${path}: ${JSON.stringify(r)}`);
+  }
+  const r = await SV.verifyLocalPass('garbage', { passSecret: SECRET, resource: { pth: '/admin' } });
+  assert.deepEqual([r.valid, r.allowed], [false, false]);
+});
+
 // ---------------------------------------------------------------- A3: Cloudflare strictCheck validates the resource it is given
 test('A3 cf-worker strictCheck(answer, resource): a malformed resource is refused, not compared field by field', () => {
   const answer = { valid: true, allowed: true, address: A, site_id: 's1', expires_at: future(), access: { mode: 'registered_keys', allowed: true, reason: 'ok' }, resource: { path: null, method: null, environment: null } };
