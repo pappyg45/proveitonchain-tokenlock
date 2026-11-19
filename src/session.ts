@@ -71,7 +71,8 @@ export type GuardDecision =
  */
 const GUARD_KEYS = ['protect', 'signInPage', 'publicPaths', 'environment', 'tokenOnly', 'caseSensitive', 'apiPaths', 'cookieName', 'cookiePath', 'maxAgeSeconds', 'afterSignOut',
   'secretKey', 'siteKey', 'apiBase', 'fetch', 'timeoutMs', 'strict', 'cache'];
-const isMatcher = (m: unknown) => (typeof m === 'string' && m.trim() !== '') || m instanceof RegExp || typeof m === 'function';
+// 0.4.3: a string pattern must be a path ('/api/:path*', '/members', or '*'); 'api/*' matched nothing and silently left paths unprotected.
+const isMatcher = (m: unknown) => (typeof m === 'string' && (m === '*' || m.startsWith('/'))) || m instanceof RegExp || typeof m === 'function';
 /**
  * Config-time validation for the middleware (0.4.2). Throws TokenlockError code 'bad_config' for: removed options
  * (failOpen, checkResource), strict:false, unknown options (typos such as `tokenonly`), wrong types (e.g. tokenOnly:'false'),
@@ -85,7 +86,7 @@ export function validateGuardOptions(opts: Record<string, any>, adapter: string,
   const list = (v: unknown, name: string, required: boolean) => {
     if (v === undefined && !required) return;
     const a = Array.isArray(v) ? v : [v];
-    if ((required && !a.length) || !a.every(isMatcher)) throw badConfig(`${adapter}: ${name} must be a path pattern, RegExp or function, or a non-empty list of them.`);
+    if ((required && !a.length) || !a.every(isMatcher)) throw badConfig(`${adapter}: ${name} must be a path pattern starting with '/' (or '*'), a RegExp or a function, or a non-empty list of them.`);
   };
   list(opts.protect, 'protect', true);
   list(opts.publicPaths, 'publicPaths', false);

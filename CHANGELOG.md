@@ -25,6 +25,10 @@ all pass on 0.4.3). Advisory: https://proveitonchain.com/security/advisories/202
 - **Middleware / worker:** the resource is built from the request; an unset environment is omitted (never sent as
   `null` or `''`); an invalid `environment` option or `TOKENLOCK_ENVIRONMENT` is `bad_config`. A request whose method
   is not a plain HTTP method name is denied.
+- **Interface audit fixes (path patterns):** an Express/Next `protect`, `publicPaths` or `apiPaths` string without a
+  leading `/` (e.g. `'api/*'`) matched nothing and silently left those paths unprotected; it is now `bad_config` at
+  startup. In the Cloudflare worker, a `TOKENLOCK_PROTECT` / `TOKENLOCK_API_PATHS` entry that is not a plain path prefix
+  (`/api/*`, `/api/:path*`, `api`) is `bad_config` and every request is refused (500) until fixed.
 - **Docs:** 0.4.2 said "unknown options are refused"; that held for the middleware only. Since 0.4.3 it holds for every
   authorization call.
 
