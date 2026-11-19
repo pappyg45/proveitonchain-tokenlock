@@ -684,6 +684,15 @@ function tokenlock_sv_route_matches($pattern, $path)
 function tokenlock_sv_evaluate($policy, $address, $held, $resource = null, $now = null)
 {
     $now = $now ?? tokenlock_sv_now();
+    // 0.4.3: a resource given here goes through the shared schema; a malformed one is refused instead of skipping the
+    // route rules. $resource null = identity only (low level).
+    if ($resource !== null) {
+        list($clean, $rerr) = tokenlock_validate_resource($resource);
+        if ($rerr !== null || $clean === null) {
+            return array('allowed' => false, 'reason' => $rerr === 'bad_path' ? 'bad_path' : 'bad_resource');
+        }
+        $resource = $clean;
+    }
     // 0.4.2: defensive (callers may evaluate a policy that never went through validation): malformed → deny.
     if (!is_array($policy) || !in_array($policy['mode'] ?? null, array('token', 'registered_keys'), true) || !tokenlock_sv_is_list($policy['keys'] ?? null)
         || (isset($policy['revoked_assets']) && !tokenlock_sv_str_list($policy['revoked_assets']))) {
@@ -793,6 +802,7 @@ function tokenlock_sv_reasons()
         'pending_approval' => 'Waiting for the site admin to approve this wallet.', 'org_not_approved' => 'The organization for this key is not approved.',
         'org_required' => 'This site requires keys to belong to an organization.', 'entitlement_revoked' => 'This token no longer unlocks this site.',
         'policy_expired' => 'Access policy is out of date. Try again in a minute.', 'policy_invalid' => 'Access policy is malformed, so access is denied. Fix the policy.', 'policy_unavailable' => 'Access policy is unavailable. Try again in a minute.',
+        'bad_resource' => "Malformed authorization request: pass a valid array('path' => ..., 'method' => ...) or 'identity_only' => true.",
     );
 }
 
@@ -908,6 +918,27 @@ function tokenlock_sv_verify_local_pass($token, $o)
     $no = function ($code, $extra = array()) use ($R, $scope) {
         return array_merge(array('valid' => in_array($code, $scope, true), 'allowed' => false, 'code' => $code, 'reason' => $R[$code] ?? $code), $extra);
     };
+    // 0.4.3: the authorization request is explicit: 'identity_only' => true (no resource), or a resource that passes the
+    // shared schema. No resource, an unknown option or a malformed resource is refused (never an identity-only check).
+    if (!is_array($o)) {
+        return $no('bad_resource');
+    }
+    foreach (array_keys($o) as $k) {
+        if (!in_array($k, array('pass_secret', 'policy', 'resource', 'identity_only', 'now'), true)) {
+            return $no('bad_resource');
+        }
+    }
+    if (array_key_exists('identity_only', $o)) {
+        if ($o['identity_only'] !== true || array_key_exists('resource', $o)) {
+            return $no('bad_resource');
+        }
+        $req = null;
+    } else {
+        list($req, $rerr) = tokenlock_validate_resource(array_key_exists('resource', $o) ? $o['resource'] : null);
+        if ($rerr !== null || $req === null) {
+            return $no($rerr === 'bad_path' ? 'bad_path' : 'bad_resource');
+        }
+    }
     if (!preg_match('/^tl3\.([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]{43})$/', (string) $token, $m)) {
         return $no('bad_pass');
     }
@@ -925,7 +956,7 @@ function tokenlock_sv_verify_local_pass($token, $o)
         return $no('expired');
     }
     $base = array('address' => $p['sub'] ?? null, 'assets_held' => $p['h'] ?? array(), 'expires_at' => tokenlock_sv_iso($p['e']), 'key_id' => $p['k'] ?? null);
-    $hasResource = isset($o['resource']) && $o['resource'] !== null;
+    $hasResource = $req !== null;
     $policyRequired = function ($identityValid) use ($base) {
         return array_merge(array('valid' => false, 'allowed' => false, 'identity_valid' => $identityValid, 'code' => 'policy_required',
             'reason' => 'No route policy applies: a resource (path, method or environment) was given but there is no policy, or the policy has no route rules (token mode), so it cannot be explicitly permitted. Use a registered-keys policy that grants the route, or drop the resource for an identity-only check.'), $base);
@@ -943,7 +974,7 @@ function tokenlock_sv_verify_local_pass($token, $o)
             $idv = tokenlock_sv_evaluate($pol, $p['sub'] ?? '', $p['h'] ?? array(), null, $now);
             return $policyRequired(!empty($idv['allowed']));
         }
-        $ev = tokenlock_sv_evaluate($pol, $p['sub'] ?? '', $p['h'] ?? array(), $o['resource'] ?? null, $now);
+        $ev = tokenlock_sv_evaluate($pol, $p['sub'] ?? '', $p['h'] ?? array(), $req, $now);
         if (!$ev['allowed']) {
             return $no($ev['reason'], $base);
         }

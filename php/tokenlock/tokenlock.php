@@ -19,7 +19,7 @@
 if (defined('TOKENLOCK_PHP')) {
     return;
 }
-define('TOKENLOCK_PHP', '0.4.2');
+define('TOKENLOCK_PHP', '0.4.3');
 
 class TokenlockException extends Exception
 {
@@ -701,35 +701,74 @@ function tokenlock_path_matches($pattern, $path)
 
 function tokenlock_clean_resource($resource)
 {
-    if (!is_array($resource)) {
-        return null;
+    $r = tokenlock_validate_resource($resource);
+    if ($r[1] !== null) {
+        throw new TokenlockException($r[1] === 'bad_path' ? 'Not a valid path.' : 'Malformed authorization request.', 400, $r[1]);
     }
-    $out = array();
-    if (!empty($resource['path']) && is_string($resource['path'])) {
-        $c = tokenlock_resource_path($resource['path']);
-        if ($c === null) {
-            throw new TokenlockException('Not a valid path.', 400, 'bad_path');
+    return $r[0];
+}
+
+/**
+ * 0.4.3: the one schema for an authorization request (same rules as the Node SDK, the Cloudflare worker and the hosted
+ * API). Returns array(resource, null) for a route check, array(null, null) for an explicit identity-only request
+ * (array('identity_only' => true) and nothing else), or array(null, 'bad_resource' | 'bad_path'). Refused: anything that
+ * is not a keyed array, unknown keys, a path without a method (or the reverse), values that are not strings or are
+ * empty, whitespace-only or padded, null values, over-long methods / environments (never truncated), relative paths
+ * and paths that fail the canonical path rules. A malformed request can never become an identity-only check.
+ */
+function tokenlock_validate_resource($r)
+{
+    if (!is_array($r) || ($r && tokenlock_is_list($r))) {
+        return array(null, 'bad_resource');
+    }
+    foreach (array_keys($r) as $k) {
+        if (!in_array($k, array('path', 'method', 'environment', 'identity_only'), true)) {
+            return array(null, 'bad_resource');
         }
-        $out['path'] = $c;
     }
-    if (!empty($resource['method']) && is_string($resource['method'])) {
-        $out['method'] = strtoupper(substr($resource['method'], 0, 10));
+    if (array_key_exists('identity_only', $r)) {
+        return ($r['identity_only'] === true && count($r) === 1) ? array(null, null) : array(null, 'bad_resource');
     }
-    if (!empty($resource['environment']) && is_string($resource['environment'])) {
-        $out['environment'] = substr($resource['environment'], 0, 30);
+    if (!array_key_exists('path', $r) || !array_key_exists('method', $r)) {
+        return array(null, 'bad_resource');
     }
-    return $out ? $out : null;
+    foreach ($r as $v) {
+        if (!is_string($v) || $v === '' || trim($v) !== $v) {
+            return array(null, 'bad_resource');
+        }
+    }
+    if (!preg_match('/^[A-Za-z]{1,10}$/D', $r['method'])) {
+        return array(null, 'bad_resource');
+    }
+    if (array_key_exists('environment', $r) && !preg_match('/^[A-Za-z0-9][A-Za-z0-9_.-]{0,29}$/D', $r['environment'])) {
+        return array(null, 'bad_resource');
+    }
+    if ($r['path'][0] !== '/') {
+        return array(null, 'bad_path');
+    }
+    $c = tokenlock_resource_path($r['path']);
+    if ($c === null) {
+        return array(null, 'bad_path');
+    }
+    $out = array('path' => $c, 'method' => strtoupper($r['method']));
+    if (array_key_exists('environment', $r)) {
+        $out['environment'] = $r['environment'];
+    }
+    return array($out, null);
 }
 
 /** The resource for this request (path + method + configured environment). Always sent since 0.4.2. */
 function tokenlock_current_resource()
 {
     $cfg = tokenlock_config();
-    return array(
+    $r = array(
         'path' => tokenlock_request_path(),
-        'method' => isset($_SERVER['REQUEST_METHOD']) ? $_SERVER['REQUEST_METHOD'] : 'GET',
-        'environment' => isset($cfg['environment']) ? (string) $cfg['environment'] : '',
+        'method' => isset($_SERVER['REQUEST_METHOD']) ? (string) $_SERVER['REQUEST_METHOD'] : 'GET',
     );
+    if (isset($cfg['environment']) && is_string($cfg['environment']) && $cfg['environment'] !== '') {
+        $r['environment'] = $cfg['environment']; // '' = no environment configured (the key is omitted, never sent empty)
+    }
+    return $r;
 }
 
 /** Deny reasons a new sign-in can't fix: answer 403 instead of redirecting to sign-in. */
@@ -904,6 +943,9 @@ function tokenlock_config_problem($cfg = null)
             return "'$k' must be a string.";
         }
     }
+    if (isset($cfg['environment']) && is_string($cfg['environment']) && $cfg['environment'] !== '' && !preg_match('/^[A-Za-z0-9][A-Za-z0-9_.-]{0,29}$/D', $cfg['environment'])) {
+        return "'environment' must be 1-30 letters, digits, '_', '.' or '-' (no spaces), or '' for none.";
+    }
     if (isset($cfg['api_paths']) && !tokenlock_str_list_ok($cfg['api_paths'])) {
         return "'api_paths' must be a path or a list of paths.";
     }
@@ -1074,13 +1116,22 @@ function tokenlock_verify_pass($pass, $resource = null, $opts = array())
     if (array_key_exists('cache', $opts) && !is_bool($opts['cache'])) {
         throw new TokenlockException("TOKENLOCK configuration error: 'cache' must be true or false.", 0, 'bad_config');
     }
+    foreach (array_keys($opts) as $k) {
+        if (!in_array($k, array('strict', 'cache'), true)) {
+            throw new TokenlockException("TOKENLOCK configuration error: unknown option '$k' for tokenlock_verify_pass().", 0, 'bad_config');
+        }
+    }
+    // 0.4.3: the authorization request is validated first. A malformed one is refused and never sent as an
+    // identity-only check; an identity-only check must be asked for with array('identity_only' => true).
+    list($res, $rerr) = tokenlock_validate_resource($resource);
+    if ($rerr === 'bad_path') {
+        return array('valid' => false, 'allowed' => false, 'code' => 'bad_path', 'reason' => 'Not a valid path.');
+    }
+    if ($rerr !== null) {
+        throw new TokenlockException("Malformed authorization request: pass array('path' => ..., 'method' => ...) (environment optional) or array('identity_only' => true).", 400, 'bad_resource');
+    }
     if (!tokenlock_pass_looks_valid($pass)) {
         return array('valid' => false, 'code' => 'bad_pass', 'reason' => 'Not a valid pass.');
-    }
-    try {
-        $res = tokenlock_clean_resource($resource);
-    } catch (TokenlockException $e) {
-        return array('valid' => false, 'allowed' => false, 'code' => 'bad_path', 'reason' => 'Not a valid path.');
     }
     $strict = true; // 0.4.2: always strict
     $useCache = array_key_exists('cache', $opts) ? $opts['cache'] : (tokenlock_boolish(isset($cfg['cache']) ? $cfg['cache'] : true) !== false);
@@ -1097,7 +1148,7 @@ function tokenlock_verify_pass($pass, $resource = null, $opts = array())
             tokenlock_cache_drop($ck, $cfg['secret_key']);
         }
     }
-    $info = tokenlock_request('POST', '/api/v1/gate/verify', array_merge(array('pass' => $pass), $res ? $res : array()));
+    $info = tokenlock_request('POST', '/api/v1/gate/verify', $res ? array_merge(array('pass' => $pass), $res) : array('pass' => $pass, 'identity_only' => true));
     $why = tokenlock_strict_problem($info, $res);
     if ($why === 'policy_required' && tokenlock_no_policy($info)) {
         return tokenlock_policy_required($info);
@@ -1131,7 +1182,7 @@ function tokenlock_check_request($pass, $opts = array())
     $res = tokenlock_current_resource();
     tokenlock_assert_config();
     if (tokenlock_boolish(isset($cfg['token_only']) ? $cfg['token_only'] : false) === true) {
-        $info = tokenlock_verify_pass($pass, null, $opts);
+        $info = tokenlock_verify_pass($pass, array('identity_only' => true), $opts);
         if (is_array($info) && !empty($info['valid']) && array_key_exists('access', $info) && $res) {
             $info = tokenlock_verify_pass($pass, $res, $opts);
         }
@@ -1337,7 +1388,7 @@ function tokenlock_handle_session()
     }
     $pass = tokenlock_read_body_pass();
     try {
-        $info = tokenlock_verify_pass($pass);
+        $info = tokenlock_verify_pass($pass, array('identity_only' => true));
     } catch (TokenlockException $e) {
         if ($e->error_code === 'bad_config') {
             error_log('[TOKENLOCK] configuration error, sign-in refused: ' . $e->getMessage());
