@@ -242,7 +242,7 @@ tokenlock_clear_cache();
 $r = tokenlock_verify_pass($ENT, array('path' => '/api/x', 'method' => 'GET'));
 expect(empty($r['valid']) && $r['code'] === 'key_revoked', '0.2.0: revoked key is denied on the next check');
 eq(in_array('route_not_allowed', tokenlock_forbidden_codes(), true), true, '0.2.0: route denials answer 403, not a sign-in redirect');
-eq(TOKENLOCK_PHP, '0.3.0', 'version 0.3.0');
+eq(TOKENLOCK_PHP, '0.4.0', 'version 0.4.0');
 
 // ---------------------------------------------------------------- 0.2.1 security patch
 echo "0.2.1\n";
@@ -273,7 +273,8 @@ tokenlock_configure(array(
         $acalls[] = $j;
         $res = array('path' => isset($j['path']) ? $j['path'] : null, 'method' => isset($j['method']) ? $j['method'] : null, 'environment' => isset($j['environment']) ? $j['environment'] : null);
         $b = array('address' => 'bc1qagent', 'site_id' => 's1', 'expires_at' => $future, 'assets_held' => array('TOKENLOCK'));
-        $o = $shape ? $shape($b, $res) : array_merge($b, array('valid' => true, 'allowed' => true, 'resource' => $res));
+        // 0.4.0: a resource is granted only by a route policy, so the default answer is a registered key allowed everywhere
+        $o = $shape ? $shape($b, $res) : array_merge($b, array('valid' => true, 'allowed' => true, 'resource' => $res, 'access' => array('mode' => 'registered_keys', 'allowed' => true, 'reason' => 'ok', 'resource' => $res)));
         return array('status' => 200, 'body' => json_encode($o));
     },
 ));
@@ -291,9 +292,21 @@ foreach ($cases as $name => $fn) {
     $r = tokenlock_verify_pass($ENT, array('path' => '/api/x', 'method' => 'GET'));
     expect(empty($r['valid']) && $r['allowed'] === false, '0.2.1 strict denies: ' . $name);
 }
+$shape = function ($b, $r) { return array_merge($b, array('valid' => true, 'allowed' => true, 'access' => array('mode' => 'registered_keys', 'allowed' => true, 'reason' => 'ok'))); };
+tokenlock_clear_cache();
+expect(!empty(tokenlock_verify_pass($ENT, array('path' => '/api/x', 'method' => 'GET'), array('strict' => false))['valid']), '0.2.1: strict off accepts the 0.2.0 answer shape (no echo)');
 $shape = $cases['no_echo'];
 tokenlock_clear_cache();
-expect(!empty(tokenlock_verify_pass($ENT, array('path' => '/api/x', 'method' => 'GET'), array('strict' => false))['valid']), '0.2.1: strict off accepts the 0.2.0 answer shape');
+$x = tokenlock_verify_pass($ENT, array('path' => '/api/x', 'method' => 'GET'), array('strict' => false));
+expect(empty($x['valid']) && $x['code'] === 'policy_required' && !empty($x['identity_valid']), '0.4.0: no route policy (token-only answer) → policy_required even with strict off');
+foreach (array(true, false) as $st) {
+    tokenlock_clear_cache();
+    $x = tokenlock_verify_pass($ENT, array('path' => '/api/x', 'method' => 'GET'), array('strict' => $st));
+    expect($x['code'] === 'policy_required' && $x['allowed'] === false, '0.4.0: token-only resource check denied (strict=' . ($st ? 'on' : 'off') . ')');
+}
+tokenlock_clear_cache();
+$x = tokenlock_verify_pass($ENT);
+expect(!empty($x['valid']), '0.4.0: identity-only check on a token-only site stays valid');
 $shape = null;
 $r = tokenlock_verify_pass($ENT, array('path' => '/api%2f..%2fx', 'method' => 'GET'));
 eq($r['code'], 'bad_path', '0.2.1: encoded slash → bad_path, no API call');
@@ -302,21 +315,21 @@ $P2 = 'pp1.' . str_repeat('F', 40) . '.' . str_repeat('Q', 43);
 tokenlock_clear_cache();
 $acalls = array();
 foreach (array('/a', '/b') as $p) {
-    tokenlock_verify_pass($ENT, array('path' => $p, 'method' => 'GET'));
-    tokenlock_verify_pass($P2, array('path' => $p, 'method' => 'GET'));
+    tokenlock_verify_pass($ENT, array('path' => $p, 'method' => 'GET'), array('strict' => false));
+    tokenlock_verify_pass($P2, array('path' => $p, 'method' => 'GET'), array('strict' => false));
 }
 foreach (array('/a', '/b') as $p) {
-    tokenlock_verify_pass($ENT, array('path' => $p, 'method' => 'GET'));
-    tokenlock_verify_pass($P2, array('path' => $p, 'method' => 'GET'));
+    tokenlock_verify_pass($ENT, array('path' => $p, 'method' => 'GET'), array('strict' => false));
+    tokenlock_verify_pass($P2, array('path' => $p, 'method' => 'GET'), array('strict' => false));
 }
-eq(count($acalls), 4, '0.2.1: token-only answers cached per resource');
+eq(count($acalls), 4, '0.2.1: answers cached per resource (loose mode, registered key)');
 tokenlock_clear_cache($ENT);
 foreach (array('/a', '/b') as $p) {
-    tokenlock_verify_pass($ENT, array('path' => $p, 'method' => 'GET'));
-    tokenlock_verify_pass($P2, array('path' => $p, 'method' => 'GET'));
+    tokenlock_verify_pass($ENT, array('path' => $p, 'method' => 'GET'), array('strict' => false));
+    tokenlock_verify_pass($P2, array('path' => $p, 'method' => 'GET'), array('strict' => false));
 }
 eq(count($acalls), 6, '0.2.1: clear_cache($pass) drops all of its resource entries, others stay');
-tokenlock_verify_pass($P2, array('path' => '/a', 'method' => 'GET'), array('cache' => false));
+tokenlock_verify_pass($P2, array('path' => '/a', 'method' => 'GET'), array('cache' => false, 'strict' => false));
 eq(count($acalls), 7, '0.2.1: cache => false always asks');
 // config-time checks
 $cfgBase = tokenlock_config();
@@ -341,8 +354,8 @@ expect(tokenlock_is_api_request('/API/x') && tokenlock_is_api_request('/v1'), '0
 unset($_SERVER['HTTP_ACCEPT']);
 
 echo "second review (cache key, resource case)\n";
-// Token-only site: the API echoes exactly the resource it was sent and there is no 'access' block, so strict answers
-// are cached. 0.2.1 kept case in the resource, so /Admin and /admin were separate entries with case-sensitive echoes.
+// 0.4.0: a registered key allowed everywhere (token-only answers are now policy_required). Loose answers are cached;
+// 0.2.1 kept case in the resource, so /Admin and /admin were separate entries with case-sensitive echoes.
 $tcalls = array();
 $echo = null;
 tokenlock_configure(array_merge($cfgBase, array(
@@ -353,28 +366,28 @@ tokenlock_configure(array_merge($cfgBase, array(
         if ($echo) {
             $r = $echo($r);
         }
-        return array('status' => 200, 'body' => json_encode(array('valid' => true, 'allowed' => true, 'address' => 'bc1qtest', 'site_id' => 's1', 'expires_at' => $future, 'cache_max_s' => 60, 'resource' => $r)));
+        return array('status' => 200, 'body' => json_encode(array('valid' => true, 'allowed' => true, 'address' => 'bc1qtest', 'site_id' => 's1', 'expires_at' => $future, 'cache_max_s' => 60, 'resource' => $r, 'access' => array('mode' => 'registered_keys', 'allowed' => true, 'reason' => 'ok', 'resource' => $r))));
     },
 )));
 tokenlock_clear_cache();
-$a = tokenlock_verify_pass($GOOD, array('path' => '/Admin', 'method' => 'GET'), array('strict' => true));
-$b = tokenlock_verify_pass($GOOD, array('path' => '/admin', 'method' => 'GET'), array('strict' => true));
+$a = tokenlock_verify_pass($GOOD, array('path' => '/Admin', 'method' => 'GET'), array('strict' => false));
+$b = tokenlock_verify_pass($GOOD, array('path' => '/admin', 'method' => 'GET'), array('strict' => false));
 expect(!empty($a['valid']) && !empty($b['valid']), 'review2: /Admin then /admin both valid');
 expect(count($tcalls) === 1 && $tcalls[0]['path'] === '/admin', 'review2: one canonical lowercased resource → one API call, one cache entry');
 expect($b['resource']['path'] === '/admin', 'review2: the answer for /admin echoes /admin');
 // key includes method, environment, mode and secret key
-tokenlock_verify_pass($GOOD, array('path' => '/admin', 'method' => 'POST'), array('strict' => true));
-tokenlock_verify_pass($GOOD, array('path' => '/admin', 'method' => 'GET', 'environment' => 'staging'), array('strict' => true));
-tokenlock_verify_pass($GOOD, array('path' => '/admin', 'method' => 'GET'), array('strict' => false));
+tokenlock_verify_pass($GOOD, array('path' => '/admin', 'method' => 'POST'), array('strict' => false));
+tokenlock_verify_pass($GOOD, array('path' => '/admin', 'method' => 'GET', 'environment' => 'staging'), array('strict' => false));
+tokenlock_verify_pass($GOOD, array('path' => '/admin', 'method' => 'GET'), array('strict' => true));
 expect(count($tcalls) === 4, 'review2: method, environment and mode are part of the cache key');
-tokenlock_verify_pass($GOOD, array('path' => '/ADMIN/', 'method' => 'get'), array('strict' => true));
+tokenlock_verify_pass($GOOD, array('path' => '/ADMIN/', 'method' => 'get'), array('strict' => false));
 expect(count($tcalls) === 4, 'review2: same canonical resource is a cache hit');
 // a cached entry that no longer matches the request is dropped and asked again (revalidated on every hit)
-$ck = $GOOD . "\n" . $cfgBase['api_base'] . "\ns\n" . json_encode(array('path' => '/admin', 'method' => 'GET'));
+$ck = $GOOD . "\n" . $cfgBase['api_base'] . "\nl\n" . json_encode(array('path' => '/admin', 'method' => 'GET'));
 $row = tokenlock_cache_get($ck, $SK);
 $row['resource']['path'] = '/public';
 tokenlock_cache_put($ck, $SK, $row);
-$c = tokenlock_verify_pass($GOOD, array('path' => '/admin', 'method' => 'GET'), array('strict' => true));
+$c = tokenlock_verify_pass($GOOD, array('path' => '/admin', 'method' => 'GET'), array('strict' => false));
 expect(!empty($c['valid']) && count($tcalls) === 5 && $c['resource']['path'] === '/admin', 'review2: a cache hit for another resource is not used');
 // an echo for another path is refused in strict and loose mode, an upper-case echo of the same path is fine
 $echo = function ($r) { $r['path'] = '/public'; return $r; };

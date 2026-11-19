@@ -47,7 +47,7 @@ async function server(early, env = {}) {
   const prepend = env.EARLY_MODE === 'include' ? [] : ['-d', 'auto_prepend_file=' + path.join(root, 'test/fixtures/early-prepend.php')];
   const p = spawn(PHP, ['-d', 'display_errors=0', '-d', 'log_errors=0', ...prepend, '-S', `127.0.0.1:${port}`, '-t', DOC], {
     cwd: root, stdio: 'ignore',
-    env: { ...process.env, TOKENLOCK_API: API, TOKENLOCK_SITE_KEY: PK, TOKENLOCK_SECRET_KEY: SK, TOKENLOCK_CACHE_DIR: path.join(root, 'tokenlock', 'cache'), TOKENLOCK_TEST_EARLY: JSON.stringify(early), TOKENLOCK_TEST_API_PATHS: '/api', ...env },
+    env: { ...process.env, TOKENLOCK_API: API, TOKENLOCK_SITE_KEY: PK, TOKENLOCK_SECRET_KEY: SK, TOKENLOCK_CACHE_DIR: path.join(root, 'tokenlock', 'cache'), TOKENLOCK_TEST_EARLY: JSON.stringify(early), TOKENLOCK_TEST_API_PATHS: '/api', TOKENLOCK_TOKEN_ONLY: '1', ...env },
   });
   servers.push(p);
   const base = `http://127.0.0.1:${port}`;
@@ -118,6 +118,10 @@ try {
   await step('fail_open on (strict off): outage lets the pass holder in, marked fail-open; a "no" still blocks', async () => {
     const r = await get(D, '/members/area', ck(DOWN)); assert.equal(r.status, 200); assert.equal(r.headers.get('x-tokenlock'), 'fail-open');
     assert.equal((await get(D, '/members/area', ck('pp1.' + 'Y'.repeat(40) + '.' + 'Q'.repeat(43)))).status, 302);
+  });
+  const T = await server(EARLY, { TOKENLOCK_TOKEN_ONLY: '0' });
+  await step('0.4.0: token-only site without token_only: valid pass is denied 403 policy_required, app never boots', async () => {
+    const r = await get(T, '/members/area', ck(GOOD)); assert.equal(r.status, 403); assert.doesNotMatch(await r.text(), /APP BOOTED/);
   });
   const E = await server(EARLY, { TOKENLOCK_FAIL_OPEN: '1', TOKENLOCK_STRICT: '1' });
   await step('strict on + fail_open = configuration error: fails closed (503), never open', async () => {
