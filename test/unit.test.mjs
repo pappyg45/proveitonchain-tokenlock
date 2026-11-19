@@ -202,20 +202,16 @@ test('0.2.0 verifyPass: sends path/method/environment + SDK header; returns acce
   assert.equal(calls.length, 2, 'a different resource is not served from cache');
   await c.verifyPass(ENT_PASS, { path: '/api/x', method: 'GET', environment: 'production' });
   assert.equal(calls.length, 3, 'strict (default with a resource): registered-key answers are never cached');
-  const n = new core.TokenlockClient({ secretKey: SK, fetch: accessFetch(calls), strict: false });
-  await n.verifyPass(ENT_PASS, { path: '/api/x', method: 'GET', environment: 'production' });
-  await n.verifyPass(ENT_PASS, { path: '/api/x', method: 'GET', environment: 'production' });
-  assert.equal(calls.length, 4, 'strict: false → same resource within cache_max_s is cached');
+  // 0.4.2: loose mode (strict: false) was removed; it is a configuration error, never a cached/looser answer
+  assert.throws(() => new core.TokenlockClient({ secretKey: SK, fetch: accessFetch(calls), strict: false }), (e) => e.code === 'bad_config');
 });
-test('0.2.0 revocation: cache honors cache_max_s (5 s), a revoked key fails on the next check after it', async () => {
+test('0.2.0 revocation (0.4.2: always strict): a revoked key fails on the very next check, registered-key answers are never cached', async () => {
   core.clearCache(); const calls = []; const st = { revoked: false };
-  const c = new core.TokenlockClient({ secretKey: SK, fetch: accessFetch(calls, st), strict: false });
+  const c = new core.TokenlockClient({ secretKey: SK, fetch: accessFetch(calls, st) });
   assert.equal((await c.verifyPass(ENT_PASS, { path: '/api/x', method: 'GET' })).valid, true);
   st.revoked = true;
-  assert.equal((await c.verifyPass(ENT_PASS, { path: '/api/x', method: 'GET' })).valid, true, 'strict: false → up to 5 s stale');
-  const realNow = Date.now; Date.now = () => realNow() + 5100;
-  try { const r = await c.verifyPass(ENT_PASS, { path: '/api/x', method: 'GET' }); assert.equal(r.valid, false); assert.equal(r.code, 'key_revoked'); }
-  finally { Date.now = realNow; }
+  const r = await c.verifyPass(ENT_PASS, { path: '/api/x', method: 'GET' }); assert.equal(r.valid, false); assert.equal(r.code, 'key_revoked');
+  assert.equal(calls.length, 2);
 });
 test('0.2.0 functional verifyPass(pass, { secretKey, path, method }) and allowed:false is never valid', async () => {
   core.clearCache(); const calls = [];
@@ -275,7 +271,7 @@ test('0.4.0 middleware: tokenOnly on a registered-keys site still enforces route
   });
 });
 const DOWN = 'pp1.' + 'D'.repeat(40) + '.' + 'Q'.repeat(43);
-test('0.2.0 availability: API down → express fails closed with 503 + Retry-After, cookie kept; failOpen lets it through', async () => {
+test('0.2.0 availability: API down → express fails closed with 503 + Retry-After, cookie kept; failOpen is a config error (0.4.2)', async () => {
   core.clearCache();
   const down = async () => { throw new TypeError('fetch failed'); };
   const mw = ex.tokenlock({ protect: ['/members/:path*'], signInPage: '/signin', secretKey: SK, fetch: down });
@@ -285,23 +281,19 @@ test('0.2.0 availability: API down → express fails closed with 503 + Retry-Aft
     assert.equal((await r.json()).code, 'tokenlock_unavailable');
     const n = await fetch(b + '/members/x', { redirect: 'manual' }); assert.equal(n.status, 302, 'no pass → still sign-in');
   });
-  const open = ex.tokenlock({ protect: ['/members/:path*'], signInPage: '/signin', secretKey: SK, fetch: down, failOpen: true });
-  await withServer(open, async (b) => {
-    const r = await fetch(b + '/members/x', { headers: { cookie: 'tokenlock_pass=' + DOWN } });
-    assert.equal(r.status, 200); assert.equal(r.headers.get('x-tokenlock'), 'fail-open'); assert.match(await r.text(), /SECRET CONTENT $/);
-  });
+  // 0.4.2: failOpen was removed; passing it (any value) is a configuration error
+  for (const v of [true, false]) assert.throws(() => ex.tokenlock({ protect: ['/members/:path*'], signInPage: '/signin', secretKey: SK, fetch: down, failOpen: v }), (e) => e.code === 'bad_config');
   // a 5xx from the API counts as unavailable; a "no" (valid:false) never fails open
   const five = async () => new Response('{"error":"busy","code":"kv_unavailable"}', { status: 503, headers: { 'content-type': 'application/json' } });
   assert.equal(core.isUnavailable(await new core.TokenlockClient({ secretKey: SK, fetch: five }).verifyPass(DOWN).catch((e) => e)), true);
-  const mw2 = ex.tokenlock({ protect: ['/members/:path*'], signInPage: '/signin', secretKey: SK, fetch: mockFetch(), failOpen: true, tokenOnly: true });
+  const mw2 = ex.tokenlock({ protect: ['/members/:path*'], signInPage: '/signin', secretKey: SK, fetch: mockFetch(), tokenOnly: true });
   await withServer(mw2, async (b) => { const r = await fetch(b + '/members/x', { redirect: 'manual', headers: { cookie: 'tokenlock_pass=' + FORGED } }); assert.equal(r.status, 302); });
 });
-test('0.2.0 availability: next middleware 503 when API down; failOpen passes', async () => {
+test('0.2.0 availability: next middleware 503 when API down; failOpen is a config error (0.4.2)', async () => {
   core.clearCache();
   const down = async () => { throw new TypeError('fetch failed'); };
   const req = (p) => { const u = new URL('https://example.com' + p); return { url: u.toString(), nextUrl: u, method: 'GET', headers: new Headers({ cookie: 'tokenlock_pass=' + DOWN }), cookies: { get: (n) => (n === 'tokenlock_pass' ? { value: DOWN } : undefined) } }; };
   const r = await nx.tokenlock({ protect: ['/members/:path*'], signInPage: '/signin', secretKey: SK, fetch: down })(req('/members/a'));
   assert.equal(r.status, 503);
-  const o = await nx.tokenlock({ protect: ['/members/:path*'], signInPage: '/signin', secretKey: SK, fetch: down, failOpen: true })(req('/members/a'));
-  assert.equal(o.headers.get('x-tokenlock'), 'fail-open');
+  assert.throws(() => nx.tokenlock({ protect: ['/members/:path*'], signInPage: '/signin', secretKey: SK, fetch: down, failOpen: true }), (e) => e.code === 'bad_config');
 });
