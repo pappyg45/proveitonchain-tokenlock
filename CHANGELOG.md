@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.1 (documentation only)
+
+No code changes from 0.4.0: same authorization logic, same tests. Only the version string (`VERSION`, client header
+`js/0.4.1`) and the documents changed. 0.4.1 is the stable security baseline.
+
+- README: the hosted API answers `policy_required` to every client version, SDK and PHP 0.2.x/0.3.x included (since
+  18 Nov 2026, 9:03 PM PT). The 0.4.0 package still said legacy clients got the old answer.
+- README: new "Fail-closed guarantee" section listing what denies by default (no policy, legacy clients, `tokenOnly`
+  on a registered-keys site, API unreachable / 5xx / timeout, policy or holdings lookup failures) and the explicit
+  opt-outs that weaken it (`failOpen: true`, `checkResource: false`, the hosted holdings re-check grace window).
+- PHP drop-in 0.4.1 ships the same way: documentation and version string only.
+
 ## 0.4.0 (security, breaking: explicit route authorization)
 
 Fixes [security advisory 2026-11-18](https://proveitonchain.com/security/advisories/2026-11-18). No route, method or

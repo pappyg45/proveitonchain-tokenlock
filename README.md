@@ -24,6 +24,8 @@ TOKENLOCK_SECRET_KEY=sk_…
 
 ## Upgrading to 0.4.0 (breaking: explicit route authorization)
 
+Current release: **0.4.1** (documentation only; same code as 0.4.0). The behavior below is unchanged since 0.4.0.
+
 0.4.0 fixes [security advisory 2026-11-18](https://proveitonchain.com/security/advisories/2026-11-18): **no route,
 method or environment is authorized unless a policy explicitly permits it.** Identity and token checks are unchanged.
 
@@ -42,12 +44,34 @@ What to do:
 - **Your own calls with a resource** on a token-only site: drop the resource (identity only), or turn on registered
   keys and grant the routes. Treat `policy_required` as a configuration error (the middleware answers 403).
 - **Self-verify**: pass a registered-keys `policy` whenever you pass a `resource`; use identity-only checks otherwise.
-- **PHP drop-in**: upgrade to PHP 0.4.0 and set `'token_only' => true` (or `TOKENLOCK_TOKEN_ONLY=1`) on token-only sites.
+- **PHP drop-in**: upgrade to PHP 0.4.0 or later (current 0.4.1) and set `'token_only' => true` (or `TOKENLOCK_TOKEN_ONLY=1`) on token-only sites.
 - **Cloudflare worker example**: set `TOKENLOCK_TOKEN_ONLY = "1"` on token-only sites.
 
 The hosted API answers `policy_required` to every client version, SDK and PHP 0.2.x/0.3.x included (since 18 Nov 2026,
 9:03 PM PT), so token-only sites still on 0.2.x/0.3.x middleware deny protected paths until they upgrade (or set
 `checkResource: false` for identity-only checks).
+
+### Fail-closed guarantee
+
+No protected path, method or environment is authorized unless a policy explicitly permits it. With the default
+settings (strict on), each of these denies:
+
+| Situation | Answer |
+| --- | --- |
+| A resource with no applicable route policy (token-only site, no `tokenOnly`) | `403 policy_required` (`identity_valid: true` if the pass is good) |
+| SDK/PHP/Cloudflare clients 0.2.x/0.3.x sending a resource to the hosted API on a token-only site | `policy_required` (hosted API, every client version) |
+| `tokenOnly: true` on a site that has registered keys | the route, method and environment are still checked against the key |
+| TOKENLOCK API unreachable, timing out (`timeoutMs`, default 8 s) or answering 5xx | `503 tokenlock_unavailable`, `retry-after: 15` |
+| Self-verify: policy bundle can't be fetched, is expired or has a bad signature | `policy_unavailable` / `policy_expired` |
+| Self-verify: holdings source fails or sources disagree | `lookup_failed` / `lookup_disagreement` |
+| Self-verify: a resource with no policy, or a token-mode policy | `policy_required` |
+
+What can weaken it, only by your explicit choice: `failOpen: true` (lets pass holders in unverified while the API is
+down) and `checkResource: false` (identity-only checks, routes not checked). Both turn strict mode off with a warning
+and are refused at startup with `strict: true`. On hosted registered-keys sites, a pass younger than
+2 × `recheck_holdings_s` keeps working during a holdings-source outage unless `require_fresh_holdings` is on (the route
+policy is still enforced). Self-verify code in versions you installed earlier (0.3.x) keeps its old behavior until you
+upgrade.
 
 ## 2. Install
 
