@@ -129,11 +129,11 @@ test('0.3.3 verifyPass throws TokenlockError: missing secret key, non-2xx HTTP, 
     await assert.rejects(new TokenlockClient({ fetch: async () => { throw new Error('unused'); } }).verifyPass(PASS), (e) => e instanceof TokenlockError && e.code === 'no_secret_key' && e.status === 0 && !isUnavailable(e));
   } finally { if (saved !== undefined) process.env.TOKENLOCK_SECRET_KEY = saved; }
   const res = (status, body) => async () => ({ ok: status >= 200 && status < 300, status, json: async () => body });
-  await assert.rejects(verifyPass(PASS, { secretKey: 'sk_test', fetch: res(429, { error: 'Too many requests.', code: 'rate_limited' }) }), (e) => e instanceof TokenlockError && e.status === 429 && e.code === 'rate_limited' && !isUnavailable(e));
-  await assert.rejects(verifyPass(PASS, { secretKey: 'sk_test', fetch: res(503, null) }), (e) => e instanceof TokenlockError && e.status === 503 && isUnavailable(e));
-  await assert.rejects(verifyPass(PASS, { secretKey: 'sk_test', fetch: async () => { throw new TypeError('fetch failed'); } }), (e) => e instanceof TokenlockError && e.code === 'network' && e.status === 0 && isUnavailable(e));
-  const bad = await verifyPass('not-a-pass', { secretKey: 'sk_test', fetch: async () => { throw new Error('not called'); } });
+  await assert.rejects(verifyPass(PASS, { secretKey: 'sk_' + 't'.repeat(43), fetch: res(429, { error: 'Too many requests.', code: 'rate_limited' }) }), (e) => e instanceof TokenlockError && e.status === 429 && e.code === 'rate_limited' && !isUnavailable(e));
+  await assert.rejects(verifyPass(PASS, { secretKey: 'sk_' + 't'.repeat(43), fetch: res(503, null) }), (e) => e instanceof TokenlockError && e.status === 503 && isUnavailable(e));
+  await assert.rejects(verifyPass(PASS, { secretKey: 'sk_' + 't'.repeat(43), fetch: async () => { throw new TypeError('fetch failed'); } }), (e) => e instanceof TokenlockError && e.code === 'network' && e.status === 0 && isUnavailable(e));
+  const bad = await verifyPass('not-a-pass', { secretKey: 'sk_' + 't'.repeat(43), fetch: async () => { throw new Error('not called'); } });
   assert.equal(bad.valid, false); assert.equal(bad.code, 'bad_pass');
-  const answered = await verifyPass(PASS, { secretKey: 'sk_test', fetch: res(200, { valid: false, code: 'bad_secret_key', reason: 'Unknown secret key.' }) });
+  const answered = await verifyPass(PASS, { secretKey: 'sk_' + 't'.repeat(43), fetch: res(200, { valid: false, code: 'bad_secret_key', reason: 'Unknown secret key.' }) });
   assert.equal(answered.valid, false); assert.equal(answered.code, 'bad_secret_key');
 });

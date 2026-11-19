@@ -5,7 +5,7 @@
  */
 export const DEFAULT_API = 'https://proveitonchain.com';
 export const DEFAULT_COOKIE = 'tokenlock_pass';
-export const VERSION = '0.4.1';
+export const VERSION = '0.4.2';
 
 export interface PassInfo {
   /** True only if the pass is real, unexpired, issued for your site and holds a token your site accepts. */
@@ -100,11 +100,11 @@ export interface ClientOptions {
   /** Request timeout in ms. Default 8000. */
   timeoutMs?: number;
   /**
-   * Strict enterprise mode: an answer counts only if it is complete and says `allowed: true` for exactly the
-   * resource you asked about (echoed back by the API). Incomplete or unknown answers are denied. Default: on whenever
-   * a resource (path/method/environment) is checked; pass false to opt out.
+   * Strict mode is always on since 0.4.2: an answer counts only if it is complete, unambiguous and says
+   * `allowed: true` for exactly the resource you asked about (echoed back by the API). Anything else is denied.
+   * `strict: true` is accepted for older configs; `strict: false` (loose mode) was removed and is a config error.
    */
-  strict?: boolean;
+  strict?: true;
   /** Cache good answers in memory (default true). In strict mode, answers for registered keys are never cached. */
   cache?: boolean;
 }
@@ -135,11 +135,14 @@ export class TokenlockClient {
   private useCache: boolean;
 
   constructor(opts: ClientOptions = {}) {
-    this.strict = opts.strict;
+    checkClientOptions(opts as any, 'TokenlockClient');
+    this.strict = true;
     this.useCache = opts.cache !== false;
     this.apiBase = (opts.apiBase || env('TOKENLOCK_API') || DEFAULT_API).replace(/\/+$/, '');
     this.secretKey = opts.secretKey ?? env('TOKENLOCK_SECRET_KEY');
     this.siteKey = opts.siteKey ?? env('TOKENLOCK_SITE_KEY') ?? env('NEXT_PUBLIC_TOKENLOCK_SITE_KEY');
+    if (this.secretKey !== undefined && !SECRET_KEY_RE.test(String(this.secretKey))) throw badConfig('TokenlockClient: the secret key is not an sk_… secret key (check TOKENLOCK_SECRET_KEY / secretKey).');
+    if (!validApiBase(this.apiBase)) throw badConfig('TokenlockClient: apiBase / TOKENLOCK_API must be an http(s) URL.');
     const f = opts.fetch ?? (typeof fetch !== 'undefined' ? fetch : undefined);
     if (!f) throw new TokenlockError('No fetch available. Use Node 18+ or pass { fetch }.', 0, 'no_fetch');
     this.fetchImpl = f;
@@ -156,8 +159,14 @@ export class TokenlockClient {
       h['x-tokenlock-sdk'] = 'js/' + VERSION;
       if (body !== undefined) h['content-type'] = 'application/json';
       const r = await this.fetchImpl(this.apiBase + path, { method, headers: h, body: body === undefined ? undefined : JSON.stringify(body), signal: ctl?.signal });
-      const j = (await r.json().catch(() => null)) as any;
-      if (!r.ok) throw new TokenlockError((j && j.error) || `TOKENLOCK API error ${r.status}`, r.status, j && j.code);
+      // 0.4.2: answers are capped (MAX_ANSWER_BYTES) and must be a JSON object; anything else is a bad answer (502 → denied).
+      const len = Number(r.headers?.get?.('content-length') || 0);
+      if (len > MAX_ANSWER_BYTES) throw new TokenlockError('TOKENLOCK API answer is too large.', 502, 'bad_answer');
+      const text = typeof r.text === 'function' ? await r.text().catch(() => '') : typeof (r as any).json === 'function' ? JSON.stringify(await (r as any).json().catch(() => null)) : '';
+      if (text.length > MAX_ANSWER_BYTES) throw new TokenlockError('TOKENLOCK API answer is too large.', 502, 'bad_answer');
+      let j: any = null; try { j = text ? JSON.parse(text) : null; } catch { j = null; }
+      if (!r.ok) throw new TokenlockError((isObj(j) && typeof j.error === 'string' && j.error) || `TOKENLOCK API error ${r.status}`, r.status, isObj(j) && typeof j.code === 'string' ? j.code : undefined);
+      if (!isObj(j)) throw new TokenlockError('TOKENLOCK API answered with something that is not a JSON object.', 502, 'bad_answer');
       return j as T;
     } catch (e: any) {
       if (e instanceof TokenlockError) throw e;
@@ -177,11 +186,13 @@ export class TokenlockClient {
    * registered keys); the answer then has `allowed` and `access`.
    */
   async verifyPass(pass: string | null | undefined, resource?: Resource, o: { strict?: boolean; cache?: boolean } = {}): Promise<PassInfo> {
+    if (o && o.strict !== undefined && o.strict !== true) throw badConfig('verifyPass: strict: false (loose mode) was removed in 0.4.2; answers are always checked strictly.');
+    if (o && o.cache !== undefined && typeof o.cache !== 'boolean') throw badConfig('verifyPass: cache must be true or false.');
     if (!this.secretKey) throw new TokenlockError('Missing secret key. Set TOKENLOCK_SECRET_KEY or pass { secretKey }.', 0, 'no_secret_key');
     if (!pass || typeof pass !== 'string' || !/^pp1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(pass) || pass.length > 4000) return { valid: false, code: 'bad_pass', reason: 'Not a valid pass.' };
     let res: Resource | null;
     try { res = cleanResource(resource); } catch { return { valid: false, allowed: false, code: 'bad_path', reason: 'Not a valid path.' }; }
-    const strict = o.strict ?? this.strict ?? !!res;
+    const strict = true; // 0.4.2: always strict
     const useCache = (o.cache ?? this.useCache) !== false;
     // One cache entry per (site key, API, pass, mode, method, canonical lowercased path, environment). Every hit is
     // checked again against this request's resource, so a cached answer can never stand in for another path.
@@ -189,14 +200,14 @@ export class TokenlockClient {
     if (useCache) {
       const hit = cache.get(ck);
       if (hit && hit.until > Date.now() && hit.key === this.secretKey) {
-        const again = strict ? strictCheck(hit.info, res) : looseCheck(hit.info, res);
+        const again = strictCheck(hit.info, res);
         if (again.valid) return again;
         cache.delete(ck);
       }
     }
     const info = await this.request<PassInfo>('POST', '/api/v1/gate/verify', { pass, ...(res || {}) });
-    const out = strict ? strictCheck(info, res) : looseCheck(info, res);
-    if (out.valid && useCache && !(strict && out.access)) remember(ck, pass, this.secretKey, out);
+    const out = strictCheck(info, res);
+    if (out.valid && useCache && !out.access) remember(ck, pass, this.secretKey, out);
     return out;
   }
 
@@ -253,17 +264,6 @@ function noPolicy(info: PassInfo): PassInfo {
   return { ...info, valid: false, allowed: false, identity_valid: true, code: 'policy_required', reason: POLICY_REQUIRED_REASON };
 }
 export const POLICY_REQUIRED_REASON = 'No route policy applies (registered keys are off), so this path, method or environment cannot be authorized. Check identity only, or turn on registered keys and grant the route. Token-only sites using the middleware: set tokenOnly: true.';
-function looseCheck(info: PassInfo, res: Resource | null = null): PassInfo {
-  // The server checks the site; double-check the answer is well-formed before trusting it.
-  if (res && info && info.valid === true && info.access === undefined) return noPolicy(info);
-  if (info && info.valid === true && info.expires_at && !(Date.parse(info.expires_at) > Date.now())) return { ...info, valid: false, code: 'expired' };
-  const ok = !!(info && info.valid === true && info.site_id && info.address && info.allowed !== false && info.access?.allowed !== false);
-  if (!ok) return { ...info, valid: false, code: info?.code || info?.access?.reason || 'bad_pass' };
-  // When the answer echoes a resource it must be this request's resource (compared in the same lowercased form).
-  const e: any = (info as any).resource || info.access?.resource;
-  if (res && e && !sameResource(res, e)) return { ...info, valid: false, allowed: false, code: 'resource_mismatch' };
-  return info;
-}
 function sameResource(res: Resource, e: any): boolean {
   const ep = typeof e?.path === 'string' ? e.path.toLowerCase() : e?.path ?? null;
   return (res.path ?? null) === ep && (res.method ?? null) === (e?.method ?? null) && (res.environment ?? null) === (e?.environment ?? null);
@@ -276,23 +276,37 @@ function keyId(key: string | undefined, api: string): string {
   return api + '#' + h1.toString(16) + h2.toString(16);
 }
 const KNOWN_MODES = ['registered_keys'];
-/** Strict enterprise mode: complete answer, explicit allowed === true, for exactly this resource. Anything else is a no. */
+const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$/;
+const isObj = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v);
+/**
+ * Strict mode (the only mode since 0.4.2): a complete, unambiguous answer that says allowed === true for exactly this
+ * resource. Wrong types, missing fields, contradictions (valid:true with an error code, allowed vs access.allowed,
+ * two echoes naming different resources, an access reason other than ok) and unknown modes are all a no.
+ */
 function strictCheck(info: PassInfo, res: Resource | null): PassInfo {
-  const deny = (code: string): PassInfo => ({ ...(info || {}), valid: false, allowed: false, code: info?.code && info.valid === false ? info.code : code, reason: info?.reason || 'Not allowed.' });
-  if (!info || typeof info !== 'object') return deny('bad_answer');
-  if (info.valid !== true) return deny(info.code || info.access?.reason || 'bad_pass');
-  if (typeof info.address !== 'string' || !info.address || typeof info.site_id !== 'string' || !info.site_id) return deny('incomplete_answer');
-  const exp = Date.parse(info.expires_at || ''); if (!(exp > Date.now())) return deny('expired');
-  if (res && info.access === undefined) return noPolicy(info);
-  if (info.access !== undefined) {
-    if (!info.access || !KNOWN_MODES.includes(info.access.mode) || info.access.allowed !== true) return deny(info.access?.reason || 'not_allowed');
+  const deny = (code: string): PassInfo => ({ ...(isObj(info) ? info : {}), valid: false, allowed: false, code: isObj(info) && info.valid === false && typeof info.code === 'string' && info.code ? info.code : code, reason: (isObj(info) && typeof info.reason === 'string' && info.reason) || 'Not allowed.' });
+  if (!isObj(info)) return deny('bad_answer');
+  const i: any = info;
+  if (i.valid !== true) return deny(typeof i.code === 'string' && i.code ? i.code : (isObj(i.access) && typeof i.access.reason === 'string' && i.access.reason) || 'bad_pass');
+  // contradictions: a "yes" that also carries an error, a denial code or a failed identity is ambiguous → no
+  if ((i.code !== undefined && i.code !== null && i.code !== 'ok') || i.error !== undefined || ('identity_valid' in i && i.identity_valid !== true)) return { ...deny('conflicting_answer'), code: typeof i.code === 'string' && /^[a-z_]{1,64}$/.test(i.code) && i.code !== 'ok' ? i.code : 'conflicting_answer' };
+  if (typeof i.address !== 'string' || !i.address || typeof i.site_id !== 'string' || !i.site_id) return deny('incomplete_answer');
+  if (i.assets_held !== undefined && !Array.isArray(i.assets_held)) return deny('incomplete_answer');
+  if (typeof i.expires_at !== 'string' || !ISO_TIME.test(i.expires_at)) return deny('incomplete_answer');
+  const exp = Date.parse(i.expires_at); if (!(exp > Date.now())) return deny('expired');
+  if (res && i.access === undefined) return noPolicy(info);
+  if ('allowed' in i && i.allowed !== true) return deny(isObj(i.access) && typeof i.access.reason === 'string' && i.access.reason !== 'ok' ? i.access.reason : 'not_allowed');
+  if (i.access !== undefined) {
+    const a = i.access;
+    if (!isObj(a) || !KNOWN_MODES.includes(a.mode) || a.allowed !== true) return deny((isObj(a) && typeof a.reason === 'string' && a.reason) || 'not_allowed');
+    if (a.reason !== undefined && a.reason !== 'ok') return deny('conflicting_answer');
   }
+  const echoes = [i.resource, isObj(i.access) ? i.access.resource : undefined].filter((e) => e !== undefined && e !== null);
   if (res) {
-    if (info.allowed !== true) return deny(info.access?.reason && info.access.reason !== 'ok' ? info.access.reason : 'not_allowed');
-    const e: any = (info as any).resource || info.access?.resource;
-    if (!e) return deny('incomplete_answer');
-    if (!sameResource(res, e)) return deny('resource_mismatch');
-  } else if (info.allowed === false) return deny('not_allowed');
+    if (i.allowed !== true) return deny('not_allowed');
+    if (!echoes.length) return deny('incomplete_answer');
+    for (const e of echoes) { if (!isObj(e)) return deny('incomplete_answer'); if (!sameResource(res, e)) return deny('resource_mismatch'); }
+  } else if (echoes.some((e) => !isObj(e) || e.path != null || e.method != null || e.environment != null)) return deny('conflicting_answer'); // an identity answer must not name a resource
   return info;
 }
 // Small in-memory cache of good verifications: at most 60 s (or the server's cache_max_s), never past the pass expiry.
@@ -319,7 +333,7 @@ let shared: TokenlockClient | null = null;
 const client = (o?: ClientOptions) => (o && Object.keys(o).length ? new TokenlockClient(o) : (shared ||= new TokenlockClient()));
 
 /** Check a pass. `verifyPass(pass, { secretKey, path, method, environment })`. Throws `TokenlockError` (see TokenlockClient.verifyPass). */
-export function verifyPass(pass: string | null | undefined, opts: ClientOptions & Resource = {}): Promise<PassInfo> {
+export async function verifyPass(pass: string | null | undefined, opts: ClientOptions & Resource = {}): Promise<PassInfo> {
   const { path, method, environment, strict, cache: useCache, ...c } = opts;
   return client(c).verifyPass(pass, path || method || environment ? { path, method, environment } : undefined, { strict, cache: useCache });
 }
@@ -335,7 +349,7 @@ export const DENIED_CODES = [...FORBIDDEN_CODES, 'key_revoked', 'key_expired', '
 export function denialStatus(code: string | undefined): 401 | 403 { return DENIED_CODES.includes(code || '') ? 403 : 401; }
 
 /** Start a sign-in challenge for your site. */
-export function createChallenge(opts: ClientOptions & { origin?: string; passTtlSeconds?: number } = {}): Promise<ChallengeInfo> {
+export async function createChallenge(opts: ClientOptions & { origin?: string; passTtlSeconds?: number } = {}): Promise<ChallengeInfo> {
   const { origin, passTtlSeconds, ...c } = opts;
   return client(c).createChallenge({ origin, passTtlSeconds });
 }
@@ -442,18 +456,37 @@ export function isApiRequest(accept: string | null | undefined, path: string, ap
   const a = String(accept || '').toLowerCase();
   return a.includes('application/json') && !a.includes('text/html');
 }
-/**
- * Config-time checks shared by the adapters. Strict is the default. Setting failOpen: true or checkResource: false
- * without strict turns strict off with a loud warning (0.2.0 configs keep working); with strict: true it throws.
- */
-export function checkAdapterOptions(o: { strict?: boolean; failOpen?: boolean; checkResource?: boolean }, name: string) {
-  const unsafe = !!o.failOpen || o.checkResource === false;
-  if (o.strict === true && o.failOpen) throw new TokenlockError(`${name}: failOpen cannot be used with strict: true. Remove one; failOpen is for low-risk content only.`, 0, 'bad_config');
-  if (o.strict === true && o.checkResource === false) throw new TokenlockError(`${name}: checkResource: false cannot be used with strict: true.`, 0, 'bad_config');
-  const strict = o.strict ?? !unsafe;
-  if (!strict && typeof console !== 'undefined') console.warn(`[TOKENLOCK] WARNING ${name}: strict mode is OFF${o.failOpen ? '; failOpen lets requests through UNVERIFIED when the API is down' : ''}${o.checkResource === false ? '; routes, methods and environments are NOT checked' : ''}. Use only for low-risk content.`)
-  return strict;
+/** Most bytes read from one API answer (0.4.2). Bigger answers are refused (denied as a bad answer). */
+export const MAX_ANSWER_BYTES = 65536;
+const SECRET_KEY_RE = /^sk_[A-Za-z0-9_-]{20,200}$/;
+const badConfig = (m: string) => new TokenlockError(m, 0, 'bad_config');
+function validApiBase(u: string): boolean { try { const x = new URL(u); return (x.protocol === 'https:' || x.protocol === 'http:') && !!x.hostname; } catch { return false; } }
+/** Options removed in 0.4.2. Any value, even the old default, is a configuration error so nothing is silently ignored. */
+export const REMOVED_OPTIONS: Record<string, string> = {
+  failOpen: 'failOpen was removed in 0.4.2: protected access is always denied while the TOKENLOCK API cannot answer.',
+  checkResource: 'checkResource was removed in 0.4.2: the path, method and environment are always checked. For a token-only site use tokenOnly: true.',
+};
+/** Config-time checks for client options: removed options, strict:false and wrong types throw (bad_config). */
+export function checkClientOptions(o: Record<string, any>, name: string) {
+  if (!o || typeof o !== 'object') return;
+  for (const k of Object.keys(REMOVED_OPTIONS)) if (k in o) throw badConfig(`${name}: ${REMOVED_OPTIONS[k]}`);
+  if (o.strict !== undefined && o.strict !== true) throw badConfig(`${name}: strict: false (loose mode) was removed in 0.4.2; strict mode is always on. Remove the strict option.`);
+  if (o.cache !== undefined && typeof o.cache !== 'boolean') throw badConfig(`${name}: cache must be true or false.`);
+  if (o.timeoutMs !== undefined && !(typeof o.timeoutMs === 'number' && Number.isFinite(o.timeoutMs) && o.timeoutMs > 0 && o.timeoutMs <= 120000)) throw badConfig(`${name}: timeoutMs must be a number of milliseconds between 1 and 120000.`);
+  if (o.apiBase !== undefined && (typeof o.apiBase !== 'string' || !validApiBase(o.apiBase))) throw badConfig(`${name}: apiBase must be an http(s) URL.`);
+  if (o.secretKey !== undefined && (typeof o.secretKey !== 'string' || !SECRET_KEY_RE.test(o.secretKey))) throw badConfig(`${name}: secretKey must be your sk_… secret key.`);
+  if (o.siteKey !== undefined && typeof o.siteKey !== 'string') throw badConfig(`${name}: siteKey must be a string.`);
+  if (o.fetch !== undefined && typeof o.fetch !== 'function') throw badConfig(`${name}: fetch must be a function.`);
 }
+/**
+ * Kept for 0.4.x callers: checks adapter options and returns true (strict is always on since 0.4.2). Removed options
+ * (failOpen, checkResource) and strict:false throw a TokenlockError with code 'bad_config'.
+ */
+export function checkAdapterOptions(o: Record<string, any>, name: string): true {
+  checkClientOptions(o, name);
+  return true;
+}
+export { SECRET_KEY_RE, validApiBase, badConfig };
 
 /**
  * A safe same-site path to go back to after sign-in, or `fallback` ('/'). Only a relative path that starts with a

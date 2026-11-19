@@ -19,7 +19,7 @@ export function tokenlock(opts: TokenlockNextOptions) {
     const raw = rawPathOf(req);
     const d = await guard.decide({ rawPath: raw, search: req.nextUrl.search, method: req.method, accept: req.headers.get('accept'), pass: readPass(req as any, guard.cookieName), url: req.url });
     if (d.action === 'skip') return NextResponse.next();
-    if (d.action === 'allow') { const r = NextResponse.next(); if (d.failOpen) r.headers.set('x-tokenlock', 'fail-open'); return r; }
+    if (d.action === 'allow') return NextResponse.next();
     const res = d.action === 'json'
       ? NextResponse.json(d.body, { status: d.status, headers: { 'cache-control': 'no-store', ...(d.headers || {}) } })
       : NextResponse.redirect(d.location);
