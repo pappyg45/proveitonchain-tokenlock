@@ -138,10 +138,10 @@ test('access rule + local pass: registered key routes (canonical, case-insensiti
   assert.equal((await lp({ resource: { path: '/api/x', method: 'GET', environment: 'production' } })).allowed, true);
   const d = await lp({ resource: { path: '/admin', method: 'GET', environment: 'production' } });
   assert.equal(d.valid, true); assert.equal(d.allowed, false); assert.equal(d.code, 'route_not_allowed');
-  assert.equal((await SV.verifyLocalPass(pass.slice(0, -2) + 'AA', { passSecret: SECRET })).code, 'bad_pass');
-  assert.equal((await SV.verifyLocalPass(pass, { passSecret: 'y'.repeat(40) })).code, 'bad_pass');
+  assert.equal((await SV.verifyLocalPass(pass.slice(0, -2) + 'AA', { passSecret: SECRET, identityOnly: true })).code, 'bad_pass');
+  assert.equal((await SV.verifyLocalPass(pass, { passSecret: 'y'.repeat(40), identityOnly: true })).code, 'bad_pass');
   const revoked = SV.localPolicy({ ...pol, keys: pol.keys.map((k) => ({ ...k, status: 'revoked' })) });
-  assert.equal((await SV.verifyLocalPass(pass, { passSecret: SECRET, policy: revoked, now: PB.now })).code, 'key_revoked', 'revocation applies to existing passes at the next policy refresh');
+  assert.equal((await SV.verifyLocalPass(pass, { passSecret: SECRET, policy: revoked, now: PB.now, identityOnly: true })).code, 'key_revoked', 'revocation applies to existing passes at the next policy refresh');
   const broken = { async get() { throw new SV.SelfVerifyError('policy_expired', 'x', 503); } };
-  assert.equal((await SV.verifyLocalPass(pass, { passSecret: SECRET, policy: broken })).allowed, false, 'policy outage fails closed');
+  assert.equal((await SV.verifyLocalPass(pass, { passSecret: SECRET, policy: broken, identityOnly: true })).allowed, false, 'policy outage fails closed');
 });

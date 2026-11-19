@@ -103,13 +103,13 @@ test('clearCache(pass) drops that pass only; cache:false always asks; registered
   core.clearCache(); const calls = [];
   const tokenOnly = (b) => ({ valid: true, ...b }); // identity answers (token-only site) are the only cached kind
   const c = new core.TokenlockClient({ secretKey: SK, fetch: api(calls, { answer: tokenOnly }) });
-  await c.verifyPass(P); await c.verifyPass(P2); assert.equal(calls.length, 2);
-  await c.verifyPass(P); await c.verifyPass(P2); assert.equal(calls.length, 2, 'all cached');
+  await c.verifyPass(P, { identityOnly: true }); await c.verifyPass(P2, { identityOnly: true }); assert.equal(calls.length, 2);
+  await c.verifyPass(P, { identityOnly: true }); await c.verifyPass(P2, { identityOnly: true }); assert.equal(calls.length, 2, 'all cached');
   core.clearCache(P);
-  await c.verifyPass(P); await c.verifyPass(P2); assert.equal(calls.length, 3, 'P refetched, P2 still cached');
-  await c.verifyPass(P2, undefined, { cache: false }); assert.equal(calls.length, 4);
+  await c.verifyPass(P, { identityOnly: true }); await c.verifyPass(P2, { identityOnly: true }); assert.equal(calls.length, 3, 'P refetched, P2 still cached');
+  await c.verifyPass(P2, { identityOnly: true }, { cache: false }); assert.equal(calls.length, 4);
   const nc = new core.TokenlockClient({ secretKey: SK, fetch: api(calls), cache: false });
-  await nc.verifyPass(P2); await nc.verifyPass(P2); assert.equal(calls.length, 6);
+  await nc.verifyPass(P2, { identityOnly: true }); await nc.verifyPass(P2, { identityOnly: true }); assert.equal(calls.length, 6);
   const k = new core.TokenlockClient({ secretKey: SK, fetch: api(calls) });
   await k.verifyPass(P, { path: '/admin/a', method: 'GET' }); await k.verifyPass(P, { path: '/admin/a', method: 'GET' });
   assert.equal(calls.length, 8, 'registered-key resource answers are asked every time');
