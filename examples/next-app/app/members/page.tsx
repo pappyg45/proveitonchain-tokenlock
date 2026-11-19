@@ -3,7 +3,9 @@ import { getPass } from '@proveitonchain/tokenlock/next';
 export const dynamic = 'force-dynamic';
 
 export default async function Members() {
-  const pass = await getPass(); // { address, assets_held, … } or null
+  // Identity check for the signed-in wallet. Since 0.4.3 the request is explicit: { identityOnly: true } here, or a
+  // route ({ path, method }) to authorize one; with neither, getPass throws bad_resource. The middleware already locked /members.
+  const pass = await getPass(undefined, { identityOnly: true }); // { address, assets_held, … } or null
   return (
     <main style={{ maxWidth: 560, margin: '80px auto', fontFamily: 'system-ui' }}>
       <h1>Welcome in</h1>

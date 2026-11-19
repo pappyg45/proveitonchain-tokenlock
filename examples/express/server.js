@@ -5,7 +5,10 @@ import { safeNext } from '@proveitonchain/tokenlock';
 // TOKENLOCK_SECRET_KEY and TOKENLOCK_SITE_KEY come from https://proveitonchain.com/tokenlock/dashboard
 const app = express();
 app.use(express.json());
-app.use(tokenlock({ protect: ['/members/:path*'], signInPage: '/signin' }));
+// tokenOnly: true = a holder site (any wallet holding one of your tokens may open /members). Remove it if you turn on
+// registered keys and want each key's routes, methods and environments enforced (without it a holder site answers 403
+// policy_required, because there are no route rules to permit the path).
+app.use(tokenlock({ protect: ['/members/:path*'], signInPage: '/signin', tokenOnly: true }));
 // tokenlock() also handles POST /api/tokenlock/session and /api/tokenlock/signout.
 
 app.get('/', (req, res) => res.send('<h1>Public home</h1><a href="/members">Members</a>'));

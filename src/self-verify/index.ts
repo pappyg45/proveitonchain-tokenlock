@@ -221,14 +221,20 @@ const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?(Z|[+-]\d{2}:\
 const isoMs = (v: unknown): number | null => (typeof v === 'string' && ISO_TIME.test(v) && Number.isFinite(Date.parse(v)) ? Date.parse(v) : null);
 const strList = (v: unknown) => Array.isArray(v) && v.every((x) => typeof x === 'string');
 export const KEY_STATUSES = ['active', 'revoked', 'pending_approval'];
-/** Most clock skew accepted on a signed bundle's issued_at (a bundle "issued" further in the future is invalid). */
+/** Most clock skew accepted on a policy's issued_at (a policy "issued" further in the future is invalid). */
 export const POLICY_FUTURE_SKEW_MS = 5 * 60e3;
 /**
  * 0.4.2: shape check for a policy (signed or local). Anything malformed is policy_invalid and access is denied: a typo in
  * `mode`, a string where a list belongs ('GET,POST' would match by substring), an unparseable date (an unparseable key
  * expiry would never expire), a non-integer seq (breaks rollback protection) or an unknown key status.
  */
+// 0.4.4: the validity window is part of validity. expires_at <= now is policy_expired and issued_at more than
+// POLICY_FUTURE_SKEW_MS ahead is policy_invalid, for EVERY policy (signed bundle, localPolicy, custom source, a policy
+// handed straight to evaluate()), checked against the `now` of the decision. 0.4.3 checked expiry only on the signed-bundle
+// path and the future check only when `signed`, so an explicitly expired local policy still authorized (external review).
+// `signed` is kept for compatibility and no longer changes the rules.
 export function validatePolicy(p: any, now = Date.now(), signed = false): void {
+  void signed;
   const bad = (why: string): never => fail('policy_invalid', 'Policy is malformed: ' + why + '.', 502);
   if (!p || typeof p !== 'object' || Array.isArray(p)) bad('not an object');
   if (p.v !== 1 || p.typ !== 'tokenlock.policy') bad('unknown version');
@@ -237,7 +243,9 @@ export function validatePolicy(p: any, now = Date.now(), signed = false): void {
   const iss = isoMs(p.issued_at), exp = isoMs(p.expires_at);
   if (iss === null) bad('issued_at'); if (exp === null) bad('expires_at');
   if ((exp as number) < (iss as number)) bad('expires_at is before issued_at');
-  if (signed && (iss as number) > now + POLICY_FUTURE_SKEW_MS) bad('issued_at is in the future');
+  if (typeof now !== 'number' || !Number.isFinite(now)) bad('no valid current time to check it against');
+  if ((iss as number) > now + POLICY_FUTURE_SKEW_MS) bad('issued_at is in the future');
+  if ((exp as number) <= now) fail('policy_expired', 'Access policy expired at ' + p.expires_at + '. Fetch or write a fresh one.', 503);
   if (p.mode !== 'token' && p.mode !== 'registered_keys') bad('mode must be "token" or "registered_keys"');
   if (!Array.isArray(p.orgs) || !p.orgs.every((x: any) => x && typeof x === 'object' && typeof x.id === 'string' && typeof x.status === 'string')) bad('orgs');
   if (!strList(p.revoked_assets)) bad('revoked_assets');
@@ -316,7 +324,11 @@ export function signedPolicy(o: { siteId: string; secretKey: string; publicKeys:
     },
   };
 }
-/** Your own policy (file, database, config): same shape, no signature needed because you are the source. */
+/**
+ * Your own policy (file, database, config): same shape, no signature needed because you are the source. A policy that
+ * leaves out issued_at/expires_at gets 1970 / 9999 (no expiry). One that SETS expires_at is enforced on every get()
+ * (0.4.4): past it, get() throws policy_expired and every decision that uses the policy is denied.
+ */
 export function localPolicy(get: Partial<Policy> | (() => Partial<Policy> | Promise<Partial<Policy>>)): PolicySource {
   const defaults = { v: 1, typ: 'tokenlock.policy', site_id: 'local', seq: 0, issued_at: iso(0), expires_at: '9999-12-31T23:59:59.000Z', orgs: [], revoked_assets: [], keys: [], mode: 'registered_keys' };
   return { async get() { const p = typeof get === 'function' ? await get() : get; const out = Object.assign({}, defaults, p) as Policy; validatePolicy(out); return out; } };
@@ -335,13 +347,32 @@ export function routeMatches(pattern: string, path: string) {
   return q === p.replace(/\/+$/, '') || (p === '/' && q === '/');
 }
 export interface Resource { path?: string; method?: string; environment?: string }
-export function evaluate(policy: Policy, o: { address: string; held: string[] | null; resource?: Resource | null; now?: number }): { allowed: boolean; reason: string; key?: PolicyKey } {
-  const now = o.now ?? Date.now();
-  // 0.4.2: defensive (callers may evaluate a policy that never went through validatePolicy): malformed → deny.
-  if (!policy || (policy.mode !== 'token' && policy.mode !== 'registered_keys') || !Array.isArray(policy.keys) || (policy.revoked_assets != null && !strList(policy.revoked_assets))) return { allowed: false, reason: 'policy_invalid' };
+const EVALUATE_KEYS = ['address', 'held', 'resource', 'identityOnly', 'now'];
+const own = (o: object, k: string) => Object.prototype.hasOwnProperty.call(o, k);
+/**
+ * The access rule (same as hosted TOKENLOCK). Exactly one of `resource` ({ path, method, environment? }) or
+ * `identityOnly: true`. 0.4.4 order, every step before any mode branch: (1) the authorization request (missing, null,
+ * malformed, unknown option → bad_resource / bad_path); (2) `held` must be a list of asset names (bad_input); (3) the
+ * policy: shape and validity window against `now` (policy_invalid / policy_expired); (4) a token-mode policy has no route
+ * rules, so a resource is policy_required; (5) keys, holdings, routes. 0.4.3 returned allowed from the token-mode branch
+ * before looking at the resource (external review).
+ */
+export function evaluate(policy: Policy, o: { address: string; held: string[]; resource?: Resource; identityOnly?: true; now?: number }): { allowed: boolean; reason: string; key?: PolicyKey } {
+  const deny = (reason: string) => ({ allowed: false, reason });
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return deny('bad_resource');
+  for (const k of Object.keys(o)) if (!EVALUATE_KEYS.includes(k)) return deny('bad_resource');
+  let r: Resource | null = null;
+  if (own(o, 'identityOnly')) { if (o.identityOnly !== true || o.resource !== undefined) return deny('bad_resource'); }
+  else { try { r = validateResource(o.resource, 'evaluate'); } catch (e: any) { return deny(e?.code === 'bad_path' ? 'bad_path' : 'bad_resource'); } }
+  if (!strList(o.held)) return deny('bad_input');
+  const now = o.now === undefined ? Date.now() : o.now;
+  if (typeof now !== 'number' || !Number.isFinite(now)) return deny('bad_input');
+  try { validatePolicy(policy, now); } catch (e: any) { return deny(e?.code === 'policy_expired' ? 'policy_expired' : 'policy_invalid'); }
+  const held = o.held as string[];
   const revoked = policy.revoked_assets || [];
   if (policy.mode !== 'registered_keys') {
-    if (o.held && !o.held.filter((a) => !revoked.includes(a)).length) return { allowed: false, reason: o.held.length ? 'entitlement_revoked' : 'not_holder' };
+    if (r) return deny('policy_required');
+    if (!held.filter((a) => !revoked.includes(a)).length) return deny(held.length ? 'entitlement_revoked' : 'not_holder');
     return { allowed: true, reason: 'ok' };
   }
   const key = (policy.keys || []).find((k) => k.address === o.address);
@@ -353,11 +384,7 @@ export function evaluate(policy: Policy, o: { address: string; held: string[] | 
   if (key.expires_at != null && key.expires_at !== '') { const e = isoMs(key.expires_at); if (e === null || e <= now) return no('key_expired'); }
   if (key.org_id) { const org = (policy.orgs || []).find((x) => x.id === key.org_id); if (!org || org.status !== 'approved') return no('org_not_approved'); }
   else if (policy.settings?.require_org) return no('org_required');
-  if (o.held) { const ok = o.held.filter((a) => !revoked.includes(a) && (!key.assets?.length || key.assets.includes(a))); if (!ok.length) return no(o.held.length ? 'entitlement_revoked' : 'not_holder'); }
-  // 0.4.3: a resource given here is validated with the same schema as every other entry point; a malformed one is
-  // refused (bad_resource / bad_path) instead of skipping the route rules. resource null/absent = identity only (low level).
-  let r: Resource | null = null;
-  if (o.resource != null) { try { r = validateResource(o.resource, 'evaluate'); } catch (e: any) { return no(e?.code === 'bad_path' ? 'bad_path' : 'bad_resource'); } if (!r) return no('bad_resource'); }
+  { const ok = held.filter((a) => !revoked.includes(a) && (!key.assets?.length || key.assets.includes(a))); if (!ok.length) return no(held.length ? 'entitlement_revoked' : 'not_holder'); }
   if (r) {
     const perm: any = key.permissions || {}; const routes = perm.routes ?? ['*'], methods = perm.methods ?? ['*'], envs = perm.environments ?? [];
     if (!strList(routes) || !strList(methods) || !strList(envs)) return no('policy_invalid');
@@ -377,7 +404,8 @@ const REASONS: Record<string, string> = {
   not_registered: 'This wallet is not a registered key for this site.', key_revoked: 'This key was revoked.', key_expired: 'This key has expired.', pending_approval: 'Waiting for the site admin to approve this wallet.',
   org_not_approved: 'The organization for this key is not approved.', org_required: 'This site requires keys to belong to an organization.', entitlement_revoked: 'This token no longer unlocks this site.',
   policy_expired: 'Access policy is out of date. Try again in a minute.', policy_invalid: 'Access policy is malformed, so access is denied. Fix the policy.', policy_unavailable: 'Access policy is unavailable. Try again in a minute.',
-  policy_required: 'No route policy applies: a resource (path, method or environment) was given but there is no policy, or the policy has no route rules (token mode), so it cannot be explicitly permitted. Use a registered-keys policy that grants the route, or drop `resource` for an identity-only check.',
+  policy_required: 'No route policy applies: a resource (path, method or environment) was given but there is no policy, or the policy has no route rules (token mode), so it cannot be explicitly permitted. Use a registered-keys policy that grants the route, or, for an identity-only check, pass { identityOnly: true } instead of a resource.',
+  bad_secret: '`passSecret` must be a string of at least 32 characters.', bad_input: 'Malformed input: held must be a list of asset names.',
 };
 export interface SelfVerifyConfig { store: NonceStore; holdings: HoldingsProvider; passSecret: string; policy?: PolicySource; clockSkewSeconds?: number }
 /** Verify a sign-in with no call to our API (except providers/policy you chose). Fails closed on any lookup error. */
@@ -401,7 +429,7 @@ export async function verifySignIn(input: { challenge_id: string; address: strin
   if (!held.length) return out('not_holder', { address, assets_held: [] });
   let keyId: string | null = null, ttl = rec.pass_ttl_s;
   if (policy) {
-    const ev = evaluate(policy, { address, held });
+    const ev = evaluate(policy, { address, held, identityOnly: true, now });
     if (!ev.allowed) return out(ev.reason, { address, assets_held: held });
     if (ev.key) { keyId = ev.key.id; const kt = ev.key.pass_ttl_s || (ev.key.owner_type === 'agent' ? policy.settings?.agent_pass_ttl_s : policy.settings?.default_pass_ttl_s); if (kt) ttl = Math.min(ttl, kt); if (ev.key.expires_at) ttl = Math.min(ttl, Math.max(60, Math.floor((Date.parse(ev.key.expires_at) - now) / 1000))); }
   }
@@ -417,7 +445,10 @@ export function issuePass(p: { sub: string; h: string[]; k: string | null; n: st
   const body = enc(JSON.stringify({ v: 1, ...p }));
   return `tl3.${body}.${createHmac('sha256', secret).update('tl3.' + body).digest('base64url')}`;
 }
-const SCOPE = new Set(['route_not_allowed', 'method_not_allowed', 'environment_not_allowed', 'bad_path']);
+// valid: true with allowed: false is only ever answered AFTER the pass was verified (authentic, unexpired, access still
+// granted) and the route/method/environment rule said no. 0.4.3 also listed bad_path here, and the path is checked before
+// the pass, so a garbage token with a malformed path answered valid: true (found by the 0.4.4 widened audit).
+const SCOPE = new Set(['route_not_allowed', 'method_not_allowed', 'environment_not_allowed']);
 /**
  * Check a local pass. `valid` = authentic, unexpired and access still granted; `allowed` also covers this resource.
  * Identity only (no `resource`): `policy` is optional. With a `resource` ({ path, method, environment }) a `policy` is
@@ -426,33 +457,38 @@ const SCOPE = new Set(['route_not_allowed', 'method_not_allowed', 'environment_n
  * applies to a token-mode policy (registered keys off): it has no route rules, so a resource is never "explicitly permitted".
  * `identity_valid: true` on those answers means the pass itself (and, in token mode, the token) is still good.
  */
-function tokenModeIdentity(pol: Policy, p: any, now: number): boolean { return evaluate(pol, { address: p.sub, held: p.h, resource: null, now }).allowed; }
+function tokenModeIdentity(pol: Policy, p: any, now: number): boolean { return evaluate(pol, { address: p.sub, held: p.h, identityOnly: true, now }).allowed; }
 const LOCAL_PASS_KEYS = ['passSecret', 'policy', 'resource', 'identityOnly', 'now'];
 export async function verifyLocalPass(token: string, o: { passSecret: string; policy?: PolicySource; resource?: Resource | null; identityOnly?: true; now?: number }): Promise<{ valid: boolean; allowed: boolean; code: string; reason: string; identity_valid?: boolean; address?: string; assets_held?: string[]; expires_at?: string; key_id?: string | null }> {
+  const early = (code: string) => ({ valid: false, allowed: false, code, reason: REASONS[code] || code }); // before the pass is verified: never valid
   const no = (code: string, extra = {}) => ({ valid: SCOPE.has(code), allowed: false, code, reason: REASONS[code] || code, ...extra });
   // 0.4.3: the authorization request is explicit. { identityOnly: true } (and no resource) is an identity-only check; a
   // resource must pass the shared schema; anything else (no resource, unknown option, malformed resource) is refused.
-  if (!o || typeof o !== 'object') return no('bad_resource');
-  for (const k of Object.keys(o)) if (!LOCAL_PASS_KEYS.includes(k)) return no('bad_resource');
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return early('bad_resource');
+  for (const k of Object.keys(o)) if (!LOCAL_PASS_KEYS.includes(k)) return early('bad_resource');
+  // 0.4.4: the HMAC key is checked like issuePass() checks it. 0.4.3 used whatever it was given, so passSecret: '' (an
+  // unset environment variable) verified passes anyone can forge with an empty key.
+  if (typeof o.passSecret !== 'string' || o.passSecret.length < 32) return early('bad_secret');
   let req: Resource | null;
-  if ('identityOnly' in o) { if (o.identityOnly !== true || o.resource !== undefined) return no('bad_resource'); req = null; }
-  else { try { req = validateResource(o.resource, 'verifyLocalPass'); } catch (e: any) { return no(e?.code === 'bad_path' ? 'bad_path' : 'bad_resource'); } if (!req) return no('bad_resource'); }
+  if (own(o, 'identityOnly')) { if (o.identityOnly !== true || o.resource !== undefined) return early('bad_resource'); req = null; }
+  else { try { req = validateResource(o.resource, 'verifyLocalPass'); } catch (e: any) { return early(e?.code === 'bad_path' ? 'bad_path' : 'bad_resource'); } if (!req) return early('bad_resource'); }
   const m = /^tl3\.([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]{43})$/.exec(String(token || ''));
-  if (!m) return no('bad_pass');
+  if (!m) return early('bad_pass');
   const want = createHmac('sha256', o.passSecret).update('tl3.' + m[1]).digest();
   const got = Buffer.from(m[2], 'base64url');
-  if (got.length !== want.length || !timingSafeEqual(got, want)) return no('bad_pass');
-  let p: any; try { p = JSON.parse(Buffer.from(m[1], 'base64url').toString('utf8')); } catch { return no('bad_pass'); }
-  const now = o.now ?? Date.now();
-  if (!(p.e > now)) return no('expired');
+  if (got.length !== want.length || !timingSafeEqual(got, want)) return early('bad_pass');
+  let p: any; try { p = JSON.parse(Buffer.from(m[1], 'base64url').toString('utf8')); } catch { return early('bad_pass'); }
+  if (!p || typeof p !== 'object') return early('bad_pass');
+  const now = o.now === undefined ? Date.now() : o.now;
+  if (typeof now !== 'number' || !Number.isFinite(now)) return early('bad_input');
+  if (!(p.e > now)) return early('expired');
   const base = { address: p.sub, assets_held: p.h, expires_at: iso(p.e), key_id: p.k ?? null };
   if (o.policy) {
     let pol: Policy; try { pol = await o.policy.get(); } catch (e: any) { return no(e?.code === 'policy_expired' || e?.code === 'policy_invalid' ? e.code : 'policy_unavailable', base); }
-    if (req != null && pol.mode !== 'registered_keys') {
-      // Token-mode policy: no route rules exist, so a resource cannot be explicitly permitted (0.4.0).
-      return { valid: false, allowed: false, identity_valid: tokenModeIdentity(pol, p, now), code: 'policy_required', reason: REASONS.policy_required, ...base };
-    }
-    const ev = evaluate(pol, { address: p.sub, held: p.h, resource: req, now });
+    // evaluate() checks the policy's shape and validity window against `now` first (0.4.4), then the mode: a token-mode
+    // policy has no route rules, so a resource is policy_required (0.4.0).
+    const ev = evaluate(pol, req ? { address: p.sub, held: p.h, resource: req, now } : { address: p.sub, held: p.h, identityOnly: true, now });
+    if (ev.reason === 'policy_required') return { valid: false, allowed: false, identity_valid: tokenModeIdentity(pol, p, now), code: 'policy_required', reason: REASONS.policy_required, ...base };
     if (!ev.allowed) return no(ev.reason, base);
     if (pol.mode === 'registered_keys' && (ev.key?.id ?? null) !== (p.k ?? null)) return no('not_registered', base); // pass bound to its key
   } else if (req != null) {

@@ -550,6 +550,11 @@ function tokenlock_sv_str_list($a)
  * a typo in 'mode', a string where a list belongs, an unparseable date (an unparseable key expiry would never
  * expire), a non-integer seq (breaks rollback protection) or an unknown key status.
  */
+// 0.4.4: the validity window is part of validity, for EVERY policy (signed bundle, local policy, custom source, a policy
+// handed straight to tokenlock_sv_evaluate()), checked against the decision's $now: expires_at <= now is policy_expired and
+// issued_at more than 5 minutes ahead is policy_invalid. 0.4.3 checked expiry only on the signed-bundle path and the future
+// check only when $signed, so an explicitly expired local policy still authorized (external review). $signed is kept for
+// compatibility and no longer changes the rules.
 function tokenlock_sv_validate_policy($p, $now = null, $signed = false)
 {
     $now = $now ?? tokenlock_sv_now();
@@ -579,8 +584,14 @@ function tokenlock_sv_validate_policy($p, $now = null, $signed = false)
     if ($exp < $iss) {
         $bad('expires_at is before issued_at');
     }
-    if ($signed && $iss > $now + 300000) {
+    if (!is_int($now) && !is_float($now)) {
+        $bad('no valid current time to check it against');
+    }
+    if ($iss > $now + 300000) {
         $bad('issued_at is in the future');
+    }
+    if ($exp <= $now) {
+        tokenlock_sv_fail('policy_expired', 'Access policy expired at ' . $p['expires_at'] . '. Fetch or write a fresh one.', 503);
     }
     if (!in_array($p['mode'] ?? null, array('token', 'registered_keys'), true)) {
         $bad('mode must be "token" or "registered_keys"');
@@ -646,7 +657,11 @@ function tokenlock_sv_validate_policy($p, $now = null, $signed = false)
     }
 }
 
-/** Your own policy (array or callable): same shape, no signature (you are the source). Malformed → policy_invalid. */
+/**
+ * Your own policy (array or callable): same shape, no signature (you are the source). Malformed → policy_invalid.
+ * Leaving out issued_at/expires_at gives 1970 / 9999 (no expiry); an expires_at you SET is enforced on every call (0.4.4):
+ * past it the source throws policy_expired and every decision that uses it is denied.
+ */
 function tokenlock_sv_local_policy($get)
 {
     return function () use ($get) {
@@ -680,28 +695,41 @@ function tokenlock_sv_route_matches($pattern, $path)
     return $q === rtrim($p, '/') || ($p === '/' && $q === '/');
 }
 
-/** Same access rule as hosted TOKENLOCK. $held null = holdings not re-checked. */
+/**
+ * Same access rule as hosted TOKENLOCK. $resource is array('path' => …, 'method' => …[, 'environment' => …]) or
+ * array('identity_only' => true). 0.4.4 order, every step before any mode branch: (1) the authorization request (null,
+ * missing or malformed → bad_resource / bad_path; identity is never implied); (2) $held must be a list of asset names
+ * (bad_input; null no longer skips the holdings check); (3) the policy: shape and validity window against $now
+ * (policy_invalid / policy_expired); (4) a token-mode policy has no route rules, so a resource is policy_required;
+ * (5) keys, holdings, routes. 0.4.3 returned allowed from the token-mode branch for a valid resource (external review).
+ */
 function tokenlock_sv_evaluate($policy, $address, $held, $resource = null, $now = null)
 {
-    $now = $now ?? tokenlock_sv_now();
-    // 0.4.3: a resource given here goes through the shared schema; a malformed one is refused instead of skipping the
-    // route rules. $resource null = identity only (low level).
-    if ($resource !== null) {
-        list($clean, $rerr) = tokenlock_validate_resource($resource);
-        if ($rerr !== null || $clean === null) {
-            return array('allowed' => false, 'reason' => $rerr === 'bad_path' ? 'bad_path' : 'bad_resource');
-        }
-        $resource = $clean;
+    $deny = function ($r) { return array('allowed' => false, 'reason' => $r); };
+    list($clean, $rerr) = tokenlock_validate_resource($resource);
+    if ($rerr !== null) {
+        return $deny($rerr === 'bad_path' ? 'bad_path' : 'bad_resource');
     }
-    // 0.4.2: defensive (callers may evaluate a policy that never went through validation): malformed → deny.
-    if (!is_array($policy) || !in_array($policy['mode'] ?? null, array('token', 'registered_keys'), true) || !tokenlock_sv_is_list($policy['keys'] ?? null)
-        || (isset($policy['revoked_assets']) && !tokenlock_sv_str_list($policy['revoked_assets']))) {
-        return array('allowed' => false, 'reason' => 'policy_invalid');
+    $resource = $clean; // null here = array('identity_only' => true), given explicitly
+    if (!tokenlock_sv_str_list($held)) {
+        return $deny('bad_input');
+    }
+    $now = $now ?? tokenlock_sv_now();
+    if (!is_int($now) && !is_float($now)) {
+        return $deny('bad_input');
+    }
+    try {
+        tokenlock_sv_validate_policy($policy, $now);
+    } catch (TokenlockSelfVerifyError $e) {
+        return $deny($e->tlcode === 'policy_expired' ? 'policy_expired' : 'policy_invalid');
     }
     $revoked = $policy['revoked_assets'] ?? array();
     if (($policy['mode'] ?? '') !== 'registered_keys') {
-        if (is_array($held) && !array_diff($held, $revoked)) {
-            return array('allowed' => false, 'reason' => $held ? 'entitlement_revoked' : 'not_holder');
+        if ($resource !== null) {
+            return $deny('policy_required');
+        }
+        if (!array_diff($held, $revoked)) {
+            return $deny($held ? 'entitlement_revoked' : 'not_holder');
         }
         return array('allowed' => true, 'reason' => 'ok');
     }
@@ -747,14 +775,12 @@ function tokenlock_sv_evaluate($policy, $address, $held, $resource = null, $now 
     } elseif (!empty($policy['settings']['require_org'])) {
         return $no('org_required');
     }
-    if (is_array($held)) {
-        $ka = $key['assets'] ?? array();
-        $ok = array_filter($held, function ($a) use ($revoked, $ka) {
-            return !in_array($a, $revoked, true) && (!$ka || in_array($a, $ka, true));
-        });
-        if (!$ok) {
-            return $no($held ? 'entitlement_revoked' : 'not_holder');
-        }
+    $ka = $key['assets'] ?? array();
+    $ok = array_filter($held, function ($a) use ($revoked, $ka) {
+        return !in_array($a, $revoked, true) && (!$ka || in_array($a, $ka, true));
+    });
+    if (!$ok) {
+        return $no($held ? 'entitlement_revoked' : 'not_holder');
     }
     if ($resource) {
         $perm = $key['permissions'] ?? array();
@@ -803,6 +829,8 @@ function tokenlock_sv_reasons()
         'org_required' => 'This site requires keys to belong to an organization.', 'entitlement_revoked' => 'This token no longer unlocks this site.',
         'policy_expired' => 'Access policy is out of date. Try again in a minute.', 'policy_invalid' => 'Access policy is malformed, so access is denied. Fix the policy.', 'policy_unavailable' => 'Access policy is unavailable. Try again in a minute.',
         'bad_resource' => "Malformed authorization request: pass a valid array('path' => ..., 'method' => ...) or 'identity_only' => true.",
+        'bad_secret' => "'pass_secret' must be a string of at least 32 characters.", 'bad_input' => 'Malformed input: held must be a list of asset names.',
+        'policy_required' => "No route policy applies: a resource (path, method or environment) was given but there is no policy, or the policy has no route rules (token mode), so it cannot be explicitly permitted. Use a registered-keys policy that grants the route, or, for an identity-only check, pass 'identity_only' => true instead of a resource.",
     );
 }
 
@@ -879,7 +907,7 @@ function tokenlock_sv_verify_sign_in($input, $cfg, $now = null)
     $keyId = null;
     $ttl = (int) $rec['pass_ttl_s'];
     if ($policy) {
-        $ev = tokenlock_sv_evaluate($policy, $address, $held, null, $now);
+        $ev = tokenlock_sv_evaluate($policy, $address, $held, array('identity_only' => true), $now);
         if (!$ev['allowed']) {
             return $out($ev['reason'], array('address' => $address, 'assets_held' => $held));
         }
@@ -914,52 +942,65 @@ function tokenlock_sv_issue_pass($p, $secret)
 function tokenlock_sv_verify_local_pass($token, $o)
 {
     $R = tokenlock_sv_reasons();
-    $scope = array('route_not_allowed', 'method_not_allowed', 'environment_not_allowed', 'bad_path');
+    // valid => true with allowed => false is only answered AFTER the pass was verified and a route/method/environment rule
+    // said no. 0.4.3 also listed bad_path, which is checked before the pass: a garbage token with a malformed path answered
+    // valid => true (found by the 0.4.4 widened audit).
+    $scope = array('route_not_allowed', 'method_not_allowed', 'environment_not_allowed');
     $no = function ($code, $extra = array()) use ($R, $scope) {
         return array_merge(array('valid' => in_array($code, $scope, true), 'allowed' => false, 'code' => $code, 'reason' => $R[$code] ?? $code), $extra);
+    };
+    $early = function ($code) use ($R) { // before the pass is verified: never valid
+        return array('valid' => false, 'allowed' => false, 'code' => $code, 'reason' => $R[$code] ?? $code);
     };
     // 0.4.3: the authorization request is explicit: 'identity_only' => true (no resource), or a resource that passes the
     // shared schema. No resource, an unknown option or a malformed resource is refused (never an identity-only check).
     if (!is_array($o)) {
-        return $no('bad_resource');
+        return $early('bad_resource');
     }
     foreach (array_keys($o) as $k) {
         if (!in_array($k, array('pass_secret', 'policy', 'resource', 'identity_only', 'now'), true)) {
-            return $no('bad_resource');
+            return $early('bad_resource');
         }
+    }
+    // 0.4.4: the HMAC key is checked like tokenlock_sv_issue_pass() checks it. 0.4.3 cast whatever it got to a string, so a
+    // missing or empty pass_secret verified passes anyone can forge with an empty key.
+    if (!isset($o['pass_secret']) || !is_string($o['pass_secret']) || strlen($o['pass_secret']) < 32) {
+        return $early('bad_secret');
     }
     if (array_key_exists('identity_only', $o)) {
         if ($o['identity_only'] !== true || array_key_exists('resource', $o)) {
-            return $no('bad_resource');
+            return $early('bad_resource');
         }
         $req = null;
     } else {
         list($req, $rerr) = tokenlock_validate_resource(array_key_exists('resource', $o) ? $o['resource'] : null);
         if ($rerr !== null || $req === null) {
-            return $no($rerr === 'bad_path' ? 'bad_path' : 'bad_resource');
+            return $early($rerr === 'bad_path' ? 'bad_path' : 'bad_resource');
         }
     }
     if (!preg_match('/^tl3\.([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]{43})$/', (string) $token, $m)) {
-        return $no('bad_pass');
+        return $early('bad_pass');
     }
-    $want = hash_hmac('sha256', 'tl3.' . $m[1], (string) $o['pass_secret'], true);
+    $want = hash_hmac('sha256', 'tl3.' . $m[1], $o['pass_secret'], true);
     $got = tokenlock_sv_b64url_decode($m[2]);
     if ($got === null || !hash_equals($want, $got)) {
-        return $no('bad_pass');
+        return $early('bad_pass');
     }
     $p = json_decode((string) tokenlock_sv_b64url_decode($m[1]), true);
     if (!is_array($p)) {
-        return $no('bad_pass');
+        return $early('bad_pass');
     }
     $now = $o['now'] ?? tokenlock_sv_now();
+    if (!is_int($now) && !is_float($now)) {
+        return $early('bad_input');
+    }
     if (!isset($p['e']) || !($p['e'] > $now)) {
-        return $no('expired');
+        return $early('expired');
     }
     $base = array('address' => $p['sub'] ?? null, 'assets_held' => $p['h'] ?? array(), 'expires_at' => tokenlock_sv_iso($p['e']), 'key_id' => $p['k'] ?? null);
     $hasResource = $req !== null;
-    $policyRequired = function ($identityValid) use ($base) {
-        return array_merge(array('valid' => false, 'allowed' => false, 'identity_valid' => $identityValid, 'code' => 'policy_required',
-            'reason' => 'No route policy applies: a resource (path, method or environment) was given but there is no policy, or the policy has no route rules (token mode), so it cannot be explicitly permitted. Use a registered-keys policy that grants the route, or drop the resource for an identity-only check.'), $base);
+    $policyRequired = function ($identityValid) use ($base, $R) {
+        return array_merge(array('valid' => false, 'allowed' => false, 'identity_valid' => $identityValid, 'code' => 'policy_required', 'reason' => $R['policy_required']), $base);
     };
     if (empty($o['policy']) && $hasResource) {
         // 0.3.0 answered allowed => true here although no route, method or environment rule was checked (advisory 2026-11-18).
@@ -970,11 +1011,14 @@ function tokenlock_sv_verify_local_pass($token, $o)
         if ($err) {
             return $no($err, $base);
         }
-        if ($hasResource && ($pol['mode'] ?? '') !== 'registered_keys') {
-            $idv = tokenlock_sv_evaluate($pol, $p['sub'] ?? '', $p['h'] ?? array(), null, $now);
+        // tokenlock_sv_evaluate() checks the policy's shape and validity window against $now first (0.4.4), then the mode:
+        // a token-mode policy has no route rules, so a resource is policy_required (0.4.0).
+        $ID = array('identity_only' => true);
+        $ev = tokenlock_sv_evaluate($pol, $p['sub'] ?? '', $p['h'] ?? array(), $hasResource ? $req : $ID, $now);
+        if ($ev['reason'] === 'policy_required') {
+            $idv = tokenlock_sv_evaluate($pol, $p['sub'] ?? '', $p['h'] ?? array(), $ID, $now);
             return $policyRequired(!empty($idv['allowed']));
         }
-        $ev = tokenlock_sv_evaluate($pol, $p['sub'] ?? '', $p['h'] ?? array(), $req, $now);
         if (!$ev['allowed']) {
             return $no($ev['reason'], $base);
         }

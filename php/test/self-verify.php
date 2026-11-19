@@ -98,8 +98,9 @@ same($ev('bc1qfixtureaddressa', array('path' => '/api/x', 'method' => 'POST', 'e
 same($ev('bc1qfixtureaddressa', array('path' => '/api/x', 'method' => 'GET', 'environment' => 'staging')), 'environment_not_allowed', 'environment');
 same($ev('bc1qfixtureaddressa', array('path' => '/api%2f..%2fadmin', 'method' => 'GET')), 'bad_path', 'encoded slash is bad_path');
 same($ev('bc1qfixtureaddressa', array('path' => '/api/x', 'method' => 'GET'), array('OLDTOKEN')), 'entitlement_revoked', 'revoked asset');
-same($ev('bc1qfixtureaddressr', null), 'key_revoked', 'revoked key');
-same($ev('bc1qsomeoneelse', null), 'not_registered', 'unknown wallet');
+// 0.4.4: identity is explicit (array('identity_only' => true)); a null resource is bad_resource.
+same($ev('bc1qfixtureaddressr', array('identity_only' => true)), 'key_revoked', 'revoked key');
+same($ev('bc1qsomeoneelse', array('identity_only' => true)), 'not_registered', 'unknown wallet');
 
 echo "challenge + nonce store (replay)\n";
 $dir = sys_get_temp_dir() . '/tokenlock-sv-' . getmypid();

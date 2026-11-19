@@ -122,7 +122,8 @@ test('signedPolicy: refreshes, keeps the last good bundle while fresh, then fail
 
 test('access rule + local pass: registered key routes (canonical, case-insensitive), revocation, org, expiry', async () => {
   const pol = SV.verifyPolicyBundle(PB.bundle, { publicKeys: { [PB.kid]: PB.public_key }, siteId: 'site_fixture', now: PB.now });
-  const ev = (address, resource, held = ['GOTPROOF']) => SV.evaluate(pol, { address, held, resource, now: PB.now }).reason;
+  // 0.4.4: identity is explicit (resource null → identityOnly: true).
+  const ev = (address, resource, held = ['GOTPROOF']) => SV.evaluate(pol, resource === null ? { address, held, identityOnly: true, now: PB.now } : { address, held, resource, now: PB.now }).reason;
   assert.equal(ev('bc1qfixtureaddressa', { path: '/api/x', method: 'GET', environment: 'production' }), 'ok');
   assert.equal(ev('bc1qfixtureaddressa', { path: '/API//x/', method: 'get', environment: 'production' }), 'ok');
   assert.equal(ev('bc1qfixtureaddressa', { path: '/admin', method: 'GET', environment: 'production' }), 'route_not_allowed');
@@ -132,7 +133,10 @@ test('access rule + local pass: registered key routes (canonical, case-insensiti
   assert.equal(ev('bc1qfixtureaddressa', { path: '/api/x', method: 'GET' }, ['OLDTOKEN']), 'entitlement_revoked');
   assert.equal(ev('bc1qfixtureaddressr', null), 'key_revoked');
   assert.equal(ev('bc1qnobody', null), 'not_registered');
-  const policy = SV.localPolicy(pol);
+  // 0.4.4: localPolicy().get() checks the validity window against the real clock, and the decision checks it against
+  // `now` (PB.now here): the fixture policy expired by the real clock, so its window is widened for this local copy.
+  const win = { issued_at: new Date(PB.now - 60e3).toISOString(), expires_at: new Date(Date.now() + 10 * 365 * 86400e3).toISOString() };
+  const policy = SV.localPolicy({ ...pol, ...win });
   const pass = SV.issuePass({ sub: 'bc1qfixtureaddressa', h: ['GOTPROOF'], k: 'key_a', n: 'c', s: 'https://shop.example', i: Date.now(), e: Date.now() + 60e3 }, SECRET);
   const lp = (o) => SV.verifyLocalPass(pass, { passSecret: SECRET, policy, now: PB.now, ...o });
   assert.equal((await lp({ resource: { path: '/api/x', method: 'GET', environment: 'production' } })).allowed, true);
@@ -140,7 +144,7 @@ test('access rule + local pass: registered key routes (canonical, case-insensiti
   assert.equal(d.valid, true); assert.equal(d.allowed, false); assert.equal(d.code, 'route_not_allowed');
   assert.equal((await SV.verifyLocalPass(pass.slice(0, -2) + 'AA', { passSecret: SECRET, identityOnly: true })).code, 'bad_pass');
   assert.equal((await SV.verifyLocalPass(pass, { passSecret: 'y'.repeat(40), identityOnly: true })).code, 'bad_pass');
-  const revoked = SV.localPolicy({ ...pol, keys: pol.keys.map((k) => ({ ...k, status: 'revoked' })) });
+  const revoked = SV.localPolicy({ ...pol, ...win, keys: pol.keys.map((k) => ({ ...k, status: 'revoked' })) });
   assert.equal((await SV.verifyLocalPass(pass, { passSecret: SECRET, policy: revoked, now: PB.now, identityOnly: true })).code, 'key_revoked', 'revocation applies to existing passes at the next policy refresh');
   const broken = { async get() { throw new SV.SelfVerifyError('policy_expired', 'x', 503); } };
   assert.equal((await SV.verifyLocalPass(pass, { passSecret: SECRET, policy: broken, identityOnly: true })).allowed, false, 'policy outage fails closed');

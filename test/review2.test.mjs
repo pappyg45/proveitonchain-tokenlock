@@ -116,7 +116,10 @@ test('Express example sign-in page: browser redirect uses safeNext', () => {
 });
 
 test('Cloudflare: authorization denials keep their reason (403), only malformed answers are incomplete_answer', () => {
-  const res = { path: '/admin', method: 'GET', environment: null };
+  // 0.4.4: strictCheck validates the resource it is given; an unset environment is omitted (as the worker builds it since
+  // 0.4.3), and the API echoes it as null.
+  const req = { path: '/admin', method: 'GET' };
+  const res = { ...req, environment: null };
   const base = { valid: true, address: 'bc1q', site_id: 's1', expires_at: future() };
   const acc = (allowed, reason) => ({ mode: 'registered_keys', allowed, reason, resource: res });
   const cases = [
@@ -134,8 +137,8 @@ test('Cloudflare: authorization denials keep their reason (403), only malformed 
     [{ ...base, expires_at: new Date(Date.now() - 1).toISOString(), allowed: true, resource: res }, 'expired'],
     [null, 'bad_answer'],
   ];
-  for (const [v, want] of cases) assert.deepEqual(cf.strictCheck(v, res), { ok: false, code: want }, JSON.stringify(v));
-  assert.deepEqual(cf.strictCheck({ ...base, allowed: true, resource: { ...res, path: '/ADMIN' }, access: acc(true, 'ok') }, res), { ok: true });
+  for (const [v, want] of cases) assert.deepEqual(cf.strictCheck(v, req), { ok: false, code: want }, JSON.stringify(v));
+  assert.deepEqual(cf.strictCheck({ ...base, allowed: true, resource: { ...res, path: '/ADMIN' }, access: acc(true, 'ok') }, req), { ok: true });
 });
 
 test('Cloudflare worker end to end: route_not_allowed with valid:true → 403 route_not_allowed (was 401 incomplete_answer)', async () => {

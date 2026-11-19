@@ -22,9 +22,31 @@ NEXT_PUBLIC_TOKENLOCK_SITE_KEY=pk_…
 TOKENLOCK_SECRET_KEY=sk_…
 ```
 
+## Upgrading to 0.4.4 (security correction)
+
+Current release: **0.4.4**, a security correction with no new features. **0.4.3 is deprecated: upgrade.** An external
+review and a widened audit (every exported function fuzzed) found validation that only ran on some paths:
+
+| You call | 0.4.3 | 0.4.4 |
+| --- | --- | --- |
+| Self-verify `evaluate(tokenModePolicy, { …, resource })` | `allowed: true` (resource never looked at, even `{ pth }` or an array path) | resource validated first, then `policy_required` |
+| `evaluate(policy, { address, held })` (no resource, no `identityOnly`) | identity check implied | `bad_resource`: pass `resource` or `identityOnly: true` |
+| `evaluate(…, { held: null })` or a `held` that is not a list of strings | holdings check skipped | `bad_input` |
+| A `localPolicy` (or any policy) whose `expires_at` has passed | still authorized | `policy_expired`, wherever the policy is used |
+| A policy whose `issued_at` is in the future (beyond 5 min skew) | accepted unless it came in a signed bundle | `policy_invalid` |
+| `verifyLocalPass(pass, { passSecret: '' })` (or shorter than 32 characters, or missing) | verified passes forged with that key | `bad_secret` |
+| `verifyLocalPass('garbage', { …, resource: { path: '/a/../b', … } })` | `valid: true, allowed: false, code: 'bad_path'` (pass never checked) | `valid: false` |
+| Cloudflare worker `strictCheck(answer, resource)` with a malformed resource; `verify()` with a resource whose fields are inherited | checked anyway | `bad_resource` |
+
+If you check only `valid`, the `bad_path` row matters: upgrade. The starter projects in `examples/` depend on `^0.4.4`,
+set `tokenOnly: true` (holder sites) and call `getPass(undefined, { identityOnly: true })`. Hosted API: the lower-level
+functions behind `/api/v1/gate/verify` now validate what they are given, and the "site still accepts this token" check
+also runs when a pass is verified without a secret key. PHP drop-in 0.4.4 has the same fixes. Advisory:
+https://proveitonchain.com/security/advisories/2026-11-18#correction-044
+
 ## Upgrading to 0.4.3 (security correction, breaking: explicit identity-only)
 
-Current release: **0.4.3**, a security correction with no new features. **0.4.2 is deprecated: upgrade.** In 0.4.2 a
+0.4.3 was a security correction with no new features (superseded by 0.4.4). In 0.4.2 a
 mistyped, unknown, empty, `null` or non-string resource field (e.g. `{ pth: '/admin' }`, `{ path: '' }`) was dropped
 and the call became an identity-only check. Since 0.4.3 every authorization call uses one strict schema:
 
@@ -82,10 +104,10 @@ What to do:
 - **Token-only site using the middleware** (any holder may open every protected path): add `tokenOnly: true`. The
   middleware then checks identity and token only. If the site later turns on registered keys, every request is
   still checked against the key's routes (`tokenOnly` can't bypass a route policy).
-- **Your own calls with a resource** on a token-only site: drop the resource (identity only), or turn on registered
+- **Your own calls with a resource** on a token-only site: drop the resource and pass `identityOnly: true` (an explicit identity-only check; since 0.4.3 leaving both out throws `bad_resource`), or turn on registered
   keys and grant the routes. Treat `policy_required` as a configuration error (the middleware answers 403).
 - **Self-verify**: pass a registered-keys `policy` whenever you pass a `resource`; use identity-only checks otherwise.
-- **PHP drop-in**: upgrade to PHP 0.4.0 or later (current 0.4.2) and set `'token_only' => true` (or `TOKENLOCK_TOKEN_ONLY=1`) on token-only sites.
+- **PHP drop-in**: upgrade to PHP 0.4.0 or later (current 0.4.4) and set `'token_only' => true` (or `TOKENLOCK_TOKEN_ONLY=1`) on token-only sites.
 - **Cloudflare worker example**: set `TOKENLOCK_TOKEN_ONLY = "1"` on token-only sites.
 
 The hosted API answers `policy_required` to every client version, SDK and PHP 0.2.x/0.3.x included (since 18 Nov 2026,
@@ -233,7 +255,7 @@ await client.request('POST', '/api/v1/gate/verify', { pass, identity_only: true 
 | --- | --- | --- | --- |
 | No secret key (option or `TOKENLOCK_SECRET_KEY`); no site key for `createChallenge` | 0 | `no_secret_key` / `no_site_key` | false (fix your config) |
 | No `fetch` in this runtime (Node < 18 without `{ fetch }`), thrown when the client is created | 0 | `no_fetch` | true |
-| `authorize()` without `{ path, method }` | 0 | `resource_required` | true |
+| `authorize()` without `{ path, method }`; any call with a missing or malformed resource (`verifyPass`/`getPass` with neither a resource nor `identityOnly: true`, unknown fields such as `pth`) | 400 | `bad_resource` | false (fix the call) |
 | The API answered with a non-2xx status (400, 401, 402, 429 rate limited, 5xx …) | the HTTP status | the API's `code`, if any | true only for 5xx |
 | Network error or timeout (`timeoutMs`, default 8000) | 0 | `network` | true |
 
@@ -444,6 +466,12 @@ every 60 s, uses the cached bundle while refreshes fail until it expires (defaul
 failed load it backs off (5 s, doubling, capped at `refreshSeconds`) and concurrent calls share one in-flight load, so an
 outage doesn't add a slow request to every call. `policy.status()` reports `failures`, `last_error` and `next_retry_at`
 for health checks. Or use `localPolicy(...)` if you keep the policy yourself.
+
+**Policy validity window (0.4.4).** Every policy is checked against the current time wherever it is used (signed bundle,
+`localPolicy`, a custom source, or a policy passed to `evaluate()`): past `expires_at` it answers `policy_expired`, and an
+`issued_at` more than 5 minutes in the future is `policy_invalid`. A `localPolicy` that leaves out `expires_at` does not
+expire. `evaluate(policy, { address, held, resource | identityOnly: true, now? })` checks the request first, then `held`
+(a list of asset names), then the policy, then the mode. `verifyLocalPass` needs a `passSecret` of at least 32 characters.
 
 **A `resource` needs a policy.** `verifyLocalPass(pass, { passSecret, resource })` without `policy` answers
 `{ valid: false, allowed: false, code: 'policy_required' }`: route, method and environment rules live in the policy, so
