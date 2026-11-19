@@ -55,7 +55,7 @@ mt_srand(0x044);
 $chars = array('/', 'a', '.', '%', '2', 'e', 'f', '\\', ';', '?', '#', "\0", ' ', 'Z', '-', '~');
 for ($i = 0; $i < 150; $i++) {
     $p = ''; $n = mt_rand(1, 14); for ($j = 0; $j < $n; $j++) { $p .= $chars[mt_rand(0, count($chars) - 1)]; }
-    if (tokenlock_canonical_path($p) === null || strpos(tokenlock_canonical_path($p), '/app/') !== 0) { $MAL["random path #$i " . json_encode($p)] = array('path' => $p, 'method' => 'GET', 'environment' => 'production'); }
+    if (tokenlock_canonical_path($p) === null) { $MAL["random path #$i " . json_encode($p)] = array('path' => $p, 'method' => 'GET', 'environment' => 'production'); }
 }
 $S = str_repeat('x', 40);
 $A = 'bc1qfuzz00000000000000000000000000000000';
