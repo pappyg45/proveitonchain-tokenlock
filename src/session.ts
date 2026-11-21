@@ -113,13 +113,21 @@ export function createGuard(opts: GuardOptions, adapter = 'tokenlock', extraKeys
   let warnedNoPolicy = false;
   return {
     strict, client, cookieName: name,
-    async decide(r: { rawPath: string; search?: string; method?: string; accept?: string | null; pass: string | null; url: string }): Promise<GuardDecision> {
+    async decide(r: { rawPath: string; appPath?: string | null; search?: string; method?: string; accept?: string | null; pass: string | null; url: string }): Promise<GuardDecision> {
       const canon = canonicalPath(r.rawPath || '/');
       if (canon === null) return { action: 'json', status: 400, body: { error: 'Not a valid path.', code: 'bad_path', reason: 'Not a valid path.' }, clearCookie: false };
-      if (!isLocked(canon) || isPublic(canon) || isSignIn(canon)) return { action: 'skip' };
-      const api = isApiRequest(r.accept, canon, isApiPath);
+      // 0.4.5 RC5: `appPath` is the path the framework routes on (Next.js: without basePath and locale prefix). Patterns are
+      // matched against it, as the framework's own matcher is; the full path is still checked too, so a pattern written with
+      // the prefix keeps locking (fail closed). publicPaths are judged on the app path. RC4 matched the full path only, so
+      // protect: ['/members/:path*'] did not lock /fr/members or /docs/members on a Next.js app with i18n or basePath.
+      const app = r.appPath != null ? canonicalPath(r.appPath) : canon;
+      if (app === null) return { action: 'json', status: 400, body: { error: 'Not a valid path.', code: 'bad_path', reason: 'Not a valid path.' }, clearCookie: false };
+      if (isSignIn(app) || isSignIn(canon)) return { action: 'skip' };
+      if (app === canon ? (!isLocked(canon) || isPublic(canon)) : (isPublic(app) || (!isLocked(app) && !isLocked(canon)))) return { action: 'skip' };
+      const path = isLocked(app) ? app : canon;
+      const api = isApiRequest(r.accept, path, isApiPath) || (path !== canon && isApiRequest(r.accept, canon, isApiPath));
       const method = (r.method || 'GET').toUpperCase();
-      const resource = { path: canon, method, ...(opts.environment !== undefined ? { environment: opts.environment } : {}) };
+      const resource = { path, method, ...(opts.environment !== undefined ? { environment: opts.environment } : {}) };
       let info: PassInfo | null = null;
       if (r.pass) {
         try {

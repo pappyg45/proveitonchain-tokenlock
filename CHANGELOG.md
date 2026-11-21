@@ -1,5 +1,158 @@
 # Changelog
 
+## 0.5.0 (security release; behavior changes)
+
+> **Behavior change: read this before upgrading.** 0.5.0 is the security release prepared as 0.4.5 (0.4.5 was never
+> published) plus fixes from later reviews (RC6, RC7). It is a minor version because it **denies inputs that 0.4.4
+> accepted** and adds options. If you use **`anyName` / `any_name`** ("any name on Bitcoin"): numeric assets (`A…`, free
+> to issue), subassets (`NAME.sub`) and a balance of a name the wallet does not own are now **rejected** (`bad_name` /
+> `not_holder`); only a registered name (4–12 letters A–Z, not starting with A) that the wallet owns counts. More inputs
+> are denied: `bad_name` (malformed names), `wrong_site` (a pass issued for another site, with the new `site` option),
+> `bad_site` (a `site` option or challenge site that is not an `http(s)` origin, now the same in Node and PHP). Hosted:
+> an entitlement revocation on a token-mode site now denies sign-in and verify (`entitlement_revoked`), as self-verify
+> already did (contract 1.2.0). Dependencies on `^0.4.x` do not pick up 0.5.0: change them to `^0.5.0`.
+
+Released as 0.5.0 instead of 0.4.5 (20 Nov 2026). The rest of this entry is the 0.4.5 security patch as reviewed:
+no new features in it. Fixes one fail-open and one broken example reported by an external reviewer (19 Nov 2026). Regression
+tests were written first and failed against npm 0.4.4 (`test/correction-045.test.mjs`: 5 of 9 failed;
+`php/test/correction-045.php`: 19 of 33 failed; hosted `tests/tokenlock-correction-045.test.mjs`: 25 of 32 failed).
+
+- **Missing permissions no longer grant every route** (external review). In 0.4.4 a registered key with no
+  `permissions`, `permissions: null`, `permissions: {}` or `{ routes: null, methods: null }` (or just one of `routes` /
+  `methods` missing or `null`) was read as `routes: ['*']`, `methods: ['*']`, so self-verify `evaluate()` /
+  `verifyLocalPass()` (Node and PHP) and the hosted access check allowed, for example, `DELETE /private/admin`. Now a
+  key's `routes` and `methods` must each be an explicit list of strings; otherwise any request with a resource is refused
+  with `policy_invalid` for that key (other keys in the policy are unaffected). `[]` grants nothing, and `'*'` is a
+  wildcard only when it is written explicitly. Identity-only checks do not read route permissions and are unchanged.
+  (`environments`: see contract v1 below.) The Cloudflare worker does not interpret permissions (it enforces the hosted
+  answer); only its version changes.
+- **Enterprise example** (`examples/self-verify-enterprise.mjs`): `checkPass(pass, { path, method })` answered
+  `bad_resource` because it always sent `environment: undefined`. It now sends `environment` only when one is given.
+- Starter projects depend on `^0.5.0`.
+
+### RC7 corrections (reviews of RC6)
+
+- **`site` must be an `http(s)` origin in Node too** (auditor). Node's `createChallenge({ site })` and
+  `verifyLocalPass({ site })` took the origin of any URL, so `ftp://`, `ws://`, `file:` or `javascript:` sites were accepted
+  (a later mismatch answered `wrong_site`); PHP already refused them. Both now answer `bad_site`. Every case was denied
+  before; this aligns the codes (12-input comparison: 0 differences).
+- **Hosted: entitlement revocations on token-mode sites are enforced** (review finding Q1). The hosted
+  service answered `200` to the revocation and then ignored it on verify and sign-in for token-mode sites, while signed
+  self-verify policies carried it. Now hosted verify and gate sign-in deny a wallet whose every held token is revoked
+  (`entitlement_revoked`); a path/method request on a token-mode site is still `policy_required`. Authorization contract
+  1.2.0, vectors T01–T08.
+
+### RC8 corrections (review of RC7)
+
+- **Hosted: Redis-down 503 scoped to sites with access state.** In
+  RC7, every token-mode site answered `503` on verify and sign-in while the access store (Redis) could not be read. Now a
+  site gets a permanent flag on its site record the first time it has any access state (keys, revocations, settings,
+  requests or durable backups; the flag is written before that state and is never removed). A flagged site still fails
+  closed (`503`) during an outage; a site that never had access state is answered on its token rules alone, as before
+  RC7. With the store up, every token-mode site's revocations are read and enforced, flagged or not. The SDK code,
+  self-verify and the authorization contract are unchanged.
+- Thanks to the external reviewer and the auditor for their reviews of this release.
+
+### RC6 corrections (reviews of RC5)
+
+- **"Any name on Bitcoin" means a registered name the wallet owns** (S1). Self-verify (Node and PHP) accepted
+  any asset name with any positive balance, including numeric `A…` assets that anyone can issue for the network fee.
+  Now, as on hosted sign-in, the name must be 4–12 letters A–Z, not starting with A, and the holdings provider must
+  report ownership (`how: 'owner'`). Anything else answers `bad_name`; a balance of a name the wallet does not own answers
+  `not_holder`. Assets the site lists still count with any positive balance. `staticProvider(map, owners)` /
+  `tokenlock_sv_static_provider($map, $owners)` take an optional second argument for owned names.
+- **`verifyLocalPass({ site })` / `tokenlock_sv_verify_local_pass(array('site' => …))`**: optional. A pass issued for
+  another site (possible only when two sites share a `passSecret`) answers `wrong_site` and is never valid. Use one
+  `passSecret` per site.
+- **PHP policy cache** (`tokenlock_sv_signed_policy`): updates are serialized with a file lock and the bundle with the
+  higher `seq` wins, so overlapping refreshes can no longer leave an older bundle on disk; a failed cache write removes
+  the old record (or fails closed with `policy_cache_failed`), and the cached bundle is used as an outage fallback only
+  while the cache directory is writable. In RC5 a revoked key could be allowed again from the older bundle.
+
+### Identity selector (0.4.5 RC4)
+
+- **`evaluate()` no longer reads `{ resource: { identityOnly: true } }` as an identity-only check** (external review of
+  RC3). Node self-verify `evaluate()` took that malformed request as identity-only, so an active key with empty
+  `routes`, `methods` and `environments` was allowed (token-mode and registered-key policies). It is now `bad_resource`.
+  Identity-only is selected only by the top-level `identityOnly: true` with no `resource` (contract §2 step 1, now stated
+  explicitly). `verifyLocalPass()`, the PHP drop-in, the Cloudflare worker and the hosted API already refused it.
+  Contract vectors: new group I (54 vectors).
+
+### Authorization contract 1.1 (added in 0.4.5 RC3)
+
+Release candidate 3 closes two gaps found while reviewing RC2, before 0.4.5 is published. Contract:
+[AUTHORIZATION-CONTRACT.md](AUTHORIZATION-CONTRACT.md) 1.1.0; upgrade checklist: [UPGRADE-0.4.5.md](UPGRADE-0.4.5.md).
+
+- **Reactivating a key requires explicit grants (hosted).** Approving a revoked key now requires `routes`, `methods`,
+  `environments` and `expires_at` (ISO date or `null`) in the request (`400 permissions_required` / `expiry_required`).
+  RC2 reactivated it with its previous grants and expiry. The previous grants stay visible in the dashboard, for
+  reference only; every input starts empty. No other path turns a revoked key active.
+- **A successful change survives recovery (hosted).** A change answers `200` only when the journal, the snapshot and a
+  separate revocation ledger all hold it;
+  otherwise `503 not_durable` (the change is in effect now; repeat it until it answers `200`). When the live store is
+  restored and the latest state cannot be established, every key that is not revoked is held (`pending_approval`) until
+  an administrator re-approves it with explicit grants. A revoked key stays revoked through every recovery path.
+- **An older backup cannot bring back revoked access (hosted).** The revocation ledger is kept apart from the backups;
+  a restore that finds a key changed after the restored copy revokes it again (or holds it), and a lost site-wide
+  change holds every key. A missing or unreadable ledger holds every key.
+- **Concurrent changes cannot undo a revocation or a narrowing (hosted).** Changes for a site are serialized and
+  version-checked (`409 site_busy` / `key_changed` / `state_changed`; nothing changed, retry). An admin change on a
+  lost live store restores first instead of starting an empty state.
+- **Unknown permission fields deny (Node, PHP, hosted).** `permissions` may contain only `routes`, `methods` and
+  `environments`; any other field makes the key invalid (it was ignored, keeping the other grants). The hosted API also
+  refuses a malformed `expires_at` (`400 bad_expiry`) or `assets` (`400 bad_assets`; it was dropped, removing the
+  restriction).
+- **`environments: []` grants no environment** (Node, PHP, hosted). It was the deprecated "any environment" form; write
+  `['*']` for any environment. The hosted API has not created `[]` since RC2.
+
+Tests were written first and failed against the frozen RC2 artifacts: contract vectors E07/E08 (Node, PHP and hosted) and
+2,458 property violations in Node and PHP; hosted lifecycle tests (`tests/tokenlock-correction-045-rc3.test.mjs`) 28 of
+34; hosted lifecycle properties (`tests/tokenlock-lifecycle-properties.test.mjs`) 242 violations. Further tests for the
+durability, recovery, concurrency and field requirements were added first as well: unknown-field vectors F01-F04 (Node,
+PHP and hosted allowed them), durability / termination / concurrency tests
+(`tests/tokenlock-correction-045-rc3-durability.test.mjs`, 22 of 29 failing on RC2) and randomized recovery over six
+recorded seeds (`tests/tokenlock-recovery-random.test.mjs`). Contract vectors: 111.
+
+### Authorization contract v1 (added in 0.4.5 RC2)
+
+The remaining implicit authorization defaults are removed, and one written rule now covers every integration:
+[AUTHORIZATION-CONTRACT.md](AUTHORIZATION-CONTRACT.md) (normative, version 1.0.0). It comes with 89 shared test vectors
+(`docs/authorization-vectors-v1.json`, run by Node, PHP, the Cloudflare worker and the hosted API) and seeded property
+tests: removing, corrupting or narrowing authorization data never allows more. 1,952,768 evaluations per platform, same
+input and decision digests in Node and PHP.
+
+Tests were written first and failed against the frozen RC1 artifacts:
+- Contract vectors: 5 of 89 failed in Node, PHP and hosted alike (G10, M06, M09, E02, E11).
+- Property violations: 2,350 in Node and PHP, 6,324 hosted.
+- Hosted RC2 regressions (`tests/tokenlock-correction-045-rc2.test.mjs`): 35 of 58 failed.
+
+Changes:
+- **`environments` is required** like `routes` and `methods`. Missing or `null` is `policy_invalid` (RC1 read it as any
+  environment). `['*']` is any environment.
+- **A restricted key denies a request with no environment** (`environment_not_allowed`). RC1 skipped the check when
+  the request named none, so a key limited to `staging` worked anywhere the environment was left out.
+- **A trailing slash is an exact route.** `'/api/'` matches only `/api`; RC1 read it as `/api/*`.
+- **Hosted API:**
+  - Resource checks need the site's secret key (`secret_key_required`). RC1 answered them for anyone with a pass, and
+    took the environment from the caller.
+  - Stored `expires_at` must be ISO 8601. A corrupted `99999` or `'2999'` no longer revives an expired key.
+  - The admin API no longer fills in wildcards on create, update, rotate or request approval (`permissions_required` /
+    `bad_permissions`).
+  - Rotation requires an active key.
+  - A request approval never revives a revoked key.
+  - The signed policy carries stored values as-is.
+  - The dashboard no longer prefills `*` and asks for grants when approving a request.
+
+**MIGRATION.** Stored data is never rewritten. A read-only review of production found 15 keys, with no wildcard, no
+`[]`, no missing field and no trailing-slash route. Check your own setup:
+- **A key restricted to environments:** make sure every check names the environment. Set it in the guard
+  (`environment`), the PHP drop-in (`'environment'` / `TOKENLOCK_ENVIRONMENT`) or the worker (`TOKENLOCK_ENVIRONMENT`).
+- **`environments: []`:** grants no environment since RC3. Write `['*']` or a list of environments.
+- **A hand-written policy key without `environments`:** add it.
+- **A route written as `'/x/'` that was meant as a prefix:** write `'/x/*'`.
+- **Code calling the hosted verify endpoint directly with path or method:** send `Authorization: Bearer sk_…` from your
+  server.
+
 ## 0.4.4 (security correction)
 
 No new features. Corrects validation gaps reported by an external reviewer and found by a widened audit that enumerates

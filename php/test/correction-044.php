@@ -31,7 +31,7 @@ $pol = function ($o) use ($now, $iso) {
     return array_merge(array('v' => 1, 'typ' => 'tokenlock.policy', 'site_id' => 'local', 'seq' => 1, 'issued_at' => $iso($now - 60000), 'expires_at' => $iso($now + 3600000),
         'orgs' => array(), 'revoked_assets' => array(), 'keys' => array()), $o);
 };
-$KEY = array('id' => 'k1', 'address' => $A, 'status' => 'active', 'permissions' => array('routes' => array('/*'), 'methods' => array('*')));
+$KEY = array('id' => 'k1', 'address' => $A, 'status' => 'active', 'permissions' => array('routes' => array('/*'), 'methods' => array('*'), 'environments' => array('*')));
 $TOKEN = $pol(array('mode' => 'token', 'assets' => array('GOTPROOF')));
 $REG = $pol(array('mode' => 'registered_keys', 'keys' => array($KEY)));
 $ID = array('identity_only' => true);

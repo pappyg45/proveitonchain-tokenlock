@@ -20,10 +20,14 @@ const fail = (code: string, message: string, status = 400): never => { throw new
 
 // ------------------------------------------------------------------ assets
 const NAMED = /^[B-Z][A-Z]{3,11}$/, NUMERIC = /^A\d{12,21}$/, SUB = /^([B-Z][A-Z]{3,11}|A\d{12,21})\.[a-zA-Z0-9.\-_@!]{1,200}$/;
+// 0.4.5 RC5 (deep review, parity with PHP and hosted): a string only; ASCII whitespace trimmed and ASCII letters uppercased
+// (String.prototype.trim/toUpperCase are Unicode-aware: pepeca\u017fh became PEPECASH, true became TRUE).
+const asciiTrim = (s: string) => s.replace(/^[ \t\n\r\v]+|[ \t\n\r\v]+$/g, '');
+const asciiUpper = (s: string) => s.replace(/[a-z]+/g, (m) => m.toUpperCase());
 export function normalizeAsset(raw: string): string {
-  let a = String(raw || '').trim();
+  let a = typeof raw === 'string' ? asciiTrim(raw) : '';
   const dot = a.indexOf('.');
-  a = dot > 0 ? a.slice(0, dot).toUpperCase() + a.slice(dot) : a.toUpperCase();
+  a = dot > 0 ? asciiUpper(a.slice(0, dot)) + a.slice(dot) : asciiUpper(a);
   if (NAMED.test(a) || NUMERIC.test(a) || SUB.test(a)) return a;
   return fail('bad_asset', `"${String(raw).slice(0, 60)}" is not a valid Bitcoin asset name.`);
 }
@@ -73,9 +77,15 @@ export function redisNonceStore(client: { set: (...a: any[]) => Promise<any>; ge
 }
 
 export interface ChallengeOptions { site: string; assets?: string[]; anyName?: boolean; ttlSeconds?: number; passTtlSeconds?: number; store: NonceStore; now?: number }
+/** The origin of a site URL (http or https only, as PHP's tokenlock_sv_site_origin), or null. */
+function siteOrigin(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  let u: URL; try { u = new URL(raw); } catch { return null; }
+  return (u.protocol === 'https:' || u.protocol === 'http:') && u.hostname ? u.origin : null;
+}
 /** Create a one-time challenge for the visitor's wallet to sign. Default lifetime 10 minutes (60 s to 30 min). */
 export async function createChallenge(o: ChallengeOptions) {
-  let site: string; try { site = new URL(o.site).origin; } catch { return fail('bad_site', '`site` must be your origin, e.g. https://shop.example'); }
+  const site = siteOrigin(o.site); if (!site) return fail('bad_site', '`site` must be your origin, e.g. https://shop.example');
   const assets = [...new Set((o.assets || []).map(normalizeAsset))];
   if (assets.length > 10) fail('too_many_assets', 'At most 10 assets.');
   if (!assets.length && !o.anyName) fail('asset_required', 'Give `assets` (any one is enough) or set `anyName: true`.');
@@ -167,8 +177,9 @@ export function httpJsonProvider(o: { name?: string; url: string; quantity: (bod
   } };
 }
 /** Fixed answers (tests, allowlists, or holdings you already know). */
-export function staticProvider(map: Record<string, string[]>): HoldingsProvider {
-  return { name: 'static', async holdings(address, assets) { const have = map[address] || []; const out: Record<string, Holding> = {}; for (const a of assets) out[a] = { held: have.includes(a), how: have.includes(a) ? 'balance' : null }; return out; } };
+/** Fixed holdings (tests, demos). `owners` lists, per address, the names it OWNS (how: 'owner'); everything else in `map` is a balance. */
+export function staticProvider(map: Record<string, string[]>, owners: Record<string, string[]> = {}): HoldingsProvider {
+  return { name: 'static', async holdings(address, assets) { const have = map[address] || [], own = owners[address] || []; const out: Record<string, Holding> = {}; for (const a of assets) out[a] = own.includes(a) ? { held: true, how: 'owner' } : { held: have.includes(a), how: have.includes(a) ? 'balance' : null }; return out; } };
 }
 /** Try providers in order; the first that answers wins. Fails closed if none answers. */
 export function firstAvailable(providers: HoldingsProvider[]): HoldingsProvider {
@@ -198,7 +209,7 @@ const b64url = (s: string) => { const b = s.replace(/-/g, '+').replace(/_/g, '/'
 const hexb = (h: string) => { if (!/^([0-9a-f]{2})+$/i.test(h)) return null; return Uint8Array.from(Buffer.from(h, 'hex')); };
 
 /** Check a policy bundle offline: signature by a pinned key, site, freshness and no rollback. Throws SelfVerifyError. */
-export function verifyPolicyBundle(bundle: PolicyBundle, o: { publicKeys: Record<string, string> | string[]; siteId: string; now?: number; minSeq?: number; maxAgeSeconds?: number }): Policy {
+export function verifyPolicyBundle(bundle: PolicyBundle, o: { publicKeys: Record<string, string> | string[]; siteId: string; now?: number; minSeq?: number; maxAgeSeconds?: number; previous?: Policy | null }): Policy {
   if (!bundle || bundle.v !== 1 || bundle.alg !== 'BIP340' || typeof bundle.payload !== 'string' || typeof bundle.sig !== 'string') fail('policy_invalid', 'Not a policy bundle.', 502);
   const candidates = Array.isArray(o.publicKeys) ? o.publicKeys : [o.publicKeys[bundle.kid]].filter(Boolean);
   if (!candidates.length) fail('policy_untrusted_key', `Policy signed by unknown key ${String(bundle.kid).slice(0, 20)}.`, 502);
@@ -214,8 +225,14 @@ export function verifyPolicyBundle(bundle: PolicyBundle, o: { publicKeys: Record
   if (!(Date.parse(p.expires_at) > now)) fail('policy_expired', 'Policy bundle expired. Fetch a fresh one.', 503);
   if (o.maxAgeSeconds && now - Date.parse(p.issued_at) > o.maxAgeSeconds * 1000) fail('policy_stale', 'Policy bundle is older than allowed.', 503);
   if (o.minSeq != null && p.seq < o.minSeq) fail('policy_rollback', 'Policy bundle is older than one already seen.', 502);
+  // 0.4.5 RC5 (H1, client side): a bundle that drops registered-keys mode is accepted only when its state_version is
+  // higher than the bundle it replaces, i.e. it reflects a newer recorded change (an admin turning registered keys off).
+  // A hosted store loss used to produce exactly such a bundle at state_version 0 (mode token, no keys), and seq (a time)
+  // alone accepted it as newer.
+  if (o.previous && o.previous.mode === 'registered_keys' && p.mode !== 'registered_keys' && !(stateVersion(p) > stateVersion(o.previous))) fail('policy_downgrade', 'Policy bundle drops registered-keys mode without a newer state version.', 502);
   return p;
 }
+const stateVersion = (p: any): number => (Number.isSafeInteger(p?.state_version) && p.state_version >= 0 ? p.state_version : -1);
 
 const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$/;
 const isoMs = (v: unknown): number | null => (typeof v === 'string' && ISO_TIME.test(v) && Number.isFinite(Date.parse(v)) ? Date.parse(v) : null);
@@ -253,6 +270,7 @@ export function validatePolicy(p: any, now = Date.now(), signed = false): void {
   if (p.origins !== undefined && !strList(p.origins)) bad('origins');
   if (p.any_name !== undefined && typeof p.any_name !== 'boolean') bad('any_name');
   if (p.settings !== undefined && (!p.settings || typeof p.settings !== 'object' || Array.isArray(p.settings))) bad('settings');
+  if (p.state_version !== undefined && !(Number.isSafeInteger(p.state_version) && p.state_version >= 0)) bad('state_version must be a whole number >= 0');
   if (!Array.isArray(p.keys)) bad('keys must be a list');
   for (const k of p.keys) {
     if (!k || typeof k !== 'object' || Array.isArray(k)) bad('key');
@@ -266,7 +284,19 @@ export function validatePolicy(p: any, now = Date.now(), signed = false): void {
       const pm = k.permissions;
       if (typeof pm !== 'object' || Array.isArray(pm)) bad('key permissions');
       for (const f of ['routes', 'methods', 'environments']) if (pm[f] != null && !strList(pm[f])) bad(`key permissions.${f} must be a list`);
+      // 0.4.5 RC3 (contract 1.1 §5): permissions is a closed object. A field other than routes / methods / environments
+      // (a misspelling, or a restriction this version does not know) makes the policy invalid rather than being ignored.
+      for (const f of Object.keys(pm)) if (!['routes', 'methods', 'environments'].includes(f)) bad(`key permissions.${f} is not a known field`);
     }
+  }
+  // 0.4.5 RC5 (S2): one entry per address and per id. Two entries for one address (bech32 addresses compare case-insensitively)
+  // are ambiguous: RC3 used the first one, so a later revoked entry was ignored. Ambiguous data never increases access.
+  const ids = new Set<string>(), addrs = new Set<string>();
+  for (const k of p.keys) {
+    const a = k.address.toLowerCase();
+    if (ids.has(k.id)) bad('duplicate key id ' + String(k.id).slice(0, 40));
+    if (addrs.has(a)) bad('duplicate key address');
+    ids.add(k.id); addrs.add(a);
   }
 }
 
@@ -298,7 +328,7 @@ export function signedPolicy(o: { siteId: string; secretKey: string; publicKeys:
     loads++;
     try {
       const b = await load();
-      const p = verifyPolicyBundle(b, { publicKeys: o.publicKeys, siteId: o.siteId, minSeq: seq < 0 ? undefined : seq });
+      const p = verifyPolicyBundle(b, { publicKeys: o.publicKeys, siteId: o.siteId, minSeq: seq < 0 ? undefined : seq, previous: cur });
       cur = p; seq = p.seq; fetchedAt = Date.now(); failures = 0; retryAt = 0; lastErr = null;
     } catch (e: any) {
       failures++; lastErr = asErr(e);
@@ -343,7 +373,8 @@ export function routeMatches(pattern: string, path: string) {
   const q = String(path || '').toLowerCase();
   if (p === '*' || p === '/*') return true;
   if (p.endsWith('/*')) { const base = p.slice(0, -2).replace(/\/+$/, ''); return q === base || q.startsWith(base + '/') || (base === '' && q.startsWith('/')); }
-  if (p.endsWith('/') && p.length > 1) { const base = p.replace(/\/+$/, ''); return q === base || q.startsWith(base + '/'); }
+  // 0.4.5 RC2 (contract v1): only a trailing "/*" is a prefix. "/api/" is the exact route /api; RC1 and earlier read it as
+  // the prefix /api/* (a broader grant than written).
   return q === p.replace(/\/+$/, '') || (p === '/' && q === '/');
 }
 export interface Resource { path?: string; method?: string; environment?: string }
@@ -363,7 +394,13 @@ export function evaluate(policy: Policy, o: { address: string; held: string[]; r
   for (const k of Object.keys(o)) if (!EVALUATE_KEYS.includes(k)) return deny('bad_resource');
   let r: Resource | null = null;
   if (own(o, 'identityOnly')) { if (o.identityOnly !== true || o.resource !== undefined) return deny('bad_resource'); }
-  else { try { r = validateResource(o.resource, 'evaluate'); } catch (e: any) { return deny(e?.code === 'bad_path' ? 'bad_path' : 'bad_resource'); } }
+  else {
+    try { r = validateResource(o.resource, 'evaluate'); } catch (e: any) { return deny(e?.code === 'bad_path' ? 'bad_path' : 'bad_resource'); }
+    // 0.4.5 RC4 (contract §2 step 1): identity-only is selected ONLY by the top-level identityOnly: true. validateResource()
+    // returns null for { identityOnly: true } (the client APIs' identity form), so RC3 took { resource: { identityOnly: true } }
+    // as an identity-only check and allowed a key with no grants. A resource must validate to a real { path, method }.
+    if (!r) return deny('bad_resource');
+  }
   if (!strList(o.held)) return deny('bad_input');
   const now = o.now === undefined ? Date.now() : o.now;
   if (typeof now !== 'number' || !Number.isFinite(now)) return deny('bad_input');
@@ -386,9 +423,18 @@ export function evaluate(policy: Policy, o: { address: string; held: string[]; r
   else if (policy.settings?.require_org) return no('org_required');
   { const ok = held.filter((a) => !revoked.includes(a) && (!key.assets?.length || key.assets.includes(a))); if (!ok.length) return no(held.length ? 'entitlement_revoked' : 'not_holder'); }
   if (r) {
-    const perm: any = key.permissions || {}; const routes = perm.routes ?? ['*'], methods = perm.methods ?? ['*'], envs = perm.environments ?? [];
+    // 0.4.5: a grant must be explicit. permissions missing, null or not an object, or routes / methods missing, null or not
+    // a list of strings: the key is refused (policy_invalid). 0.4.4 read a missing or null routes / methods as ['*'], so a
+    // key with no permissions could call any route with any method. [] grants nothing; only an explicit '*' is a wildcard.
+    const perm: any = key.permissions;
+    if (perm === null || typeof perm !== 'object' || Array.isArray(perm)) return no('policy_invalid');
+    // 0.4.5 RC2 (contract v1): environments is required too (missing or null is policy_invalid; RC1 read it as []). ['*'] is
+    // any environment. A restricted list denies a request whose environment is omitted or not listed (RC1 skipped the check
+    // when the request had no environment). [] grants no environment (contract 1.1 §5; RC2 read it as any).
+    const routes = perm.routes, methods = perm.methods, envs = perm.environments;
     if (!strList(routes) || !strList(methods) || !strList(envs)) return no('policy_invalid');
-    if (r.environment && envs.length && !envs.includes('*') && !envs.includes(r.environment)) return no('environment_not_allowed');
+    // 0.4.5 RC3 (contract 1.1, U1): an empty environments list grants no environment (RC2 read [] as any).
+    if (!envs.includes('*') && !(r.environment && envs.includes(r.environment))) return no('environment_not_allowed');
     if (r.path) { const p = normalizePath(r.path); if (!p) return no('bad_path'); if (!routes.some((x) => routeMatches(x, p))) return no('route_not_allowed'); }
     if (r.method && !methods.includes('*') && !methods.includes(String(r.method).toUpperCase())) return no('method_not_allowed');
   }
@@ -400,7 +446,7 @@ export interface SignInResult { valid: boolean; code: string; reason: string; ad
 const REASONS: Record<string, string> = {
   ok: 'Signed in.', bad_pass: 'Not a valid pass.', route_not_allowed: 'This key is not allowed on this route.', method_not_allowed: 'This key is not allowed to use this method here.', environment_not_allowed: 'This key is not allowed in this environment.', bad_path: 'Not a valid path.', bad_resource: 'Malformed authorization request: pass a valid { path, method } or { identityOnly: true }.', unknown_challenge: 'This sign-in request is unknown or was already used. Start again.', expired: 'This sign-in request expired. Start again.',
   bad_signature: 'The signature does not match this address and message.', bad_address: 'Not a Bitcoin address we support.', not_holder: 'This wallet does not hold the token.',
-  lookup_failed: 'Could not read holdings right now. Try again in a minute.', lookup_disagreement: 'Holdings sources disagree. Try again in a minute.', name_required: 'Give the name you hold.',
+  lookup_failed: 'Could not read holdings right now. Try again in a minute.', lookup_disagreement: 'Holdings sources disagree. Try again in a minute.', name_required: 'Give the name you hold.', bad_asset: 'Not a valid Bitcoin asset name.', bad_name: 'Names are 4–12 letters A–Z and do not start with A.', wrong_site: 'This pass was issued for another site.', bad_site: '`site` must be your origin, e.g. https://shop.example.',
   not_registered: 'This wallet is not a registered key for this site.', key_revoked: 'This key was revoked.', key_expired: 'This key has expired.', pending_approval: 'Waiting for the site admin to approve this wallet.',
   org_not_approved: 'The organization for this key is not approved.', org_required: 'This site requires keys to belong to an organization.', entitlement_revoked: 'This token no longer unlocks this site.',
   policy_expired: 'Access policy is out of date. Try again in a minute.', policy_invalid: 'Access policy is malformed, so access is denied. Fix the policy.', policy_unavailable: 'Access policy is unavailable. Try again in a minute.',
@@ -422,10 +468,19 @@ export async function verifySignIn(input: { challenge_id: string; address: strin
   let policy: Policy | null = null;
   if (cfg.policy) { try { policy = await cfg.policy.get(); } catch (e: any) { return out(e?.code === 'policy_expired' || e?.code === 'policy_invalid' ? e.code : 'policy_unavailable', { address }); } }
   const want = [...rec.assets];
-  if (rec.any_name) { if (!input.name) { if (!want.length) return out('name_required', { address }); } else want.push(normalizeAsset(input.name)); }
+  // 0.5.0 RC6 (S1, option A): "any name on Bitcoin" means a registered name (4-12 letters A-Z, not starting with A) that
+  // this address OWNS, as on hosted sign-in. RC5 accepted any asset name (numeric A… assets included, which anyone can issue
+  // for the network fee) with any positive balance. A name that is not a registered name answers bad_name, like hosted
+  // (RC5 S3 answered bad_asset for malformed ones; it still never throws).
+  let anyName: string | null = null;
+  if (rec.any_name) {
+    if (input.name === undefined || input.name === null || input.name === '') { if (!want.length) return out('name_required', { address }); }
+    else { const n = typeof input.name === 'string' ? asciiUpper(asciiTrim(input.name)) : ''; if (!NAMED.test(n)) return out('bad_name', { address }); anyName = n; if (!want.includes(n)) want.push(n); }
+  }
   let h: Record<string, Holding>;
   try { h = await cfg.holdings.holdings(address, want); } catch (e: any) { return out(e?.code === 'lookup_disagreement' ? 'lookup_disagreement' : 'lookup_failed', { address }); }
-  const held = want.filter((a) => h?.[a]?.held === true);
+  // The site's listed assets count with any positive balance; the "any name" only when owned.
+  const held = want.filter((a) => h?.[a]?.held === true && (rec.assets.includes(a) || (a === anyName && h[a].how === 'owner')));
   if (!held.length) return out('not_holder', { address, assets_held: [] });
   let keyId: string | null = null, ttl = rec.pass_ttl_s;
   if (policy) {
@@ -458,8 +513,13 @@ const SCOPE = new Set(['route_not_allowed', 'method_not_allowed', 'environment_n
  * `identity_valid: true` on those answers means the pass itself (and, in token mode, the token) is still good.
  */
 function tokenModeIdentity(pol: Policy, p: any, now: number): boolean { return evaluate(pol, { address: p.sub, held: p.h, identityOnly: true, now }).allowed; }
-const LOCAL_PASS_KEYS = ['passSecret', 'policy', 'resource', 'identityOnly', 'now'];
-export async function verifyLocalPass(token: string, o: { passSecret: string; policy?: PolicySource; resource?: Resource | null; identityOnly?: true; now?: number }): Promise<{ valid: boolean; allowed: boolean; code: string; reason: string; identity_valid?: boolean; address?: string; assets_held?: string[]; expires_at?: string; key_id?: string | null }> {
+const LOCAL_PASS_KEYS = ['passSecret', 'policy', 'resource', 'identityOnly', 'now', 'site'];
+/**
+ * 0.5.0 RC6: `site` (your origin, as given to createChallenge) binds the check to this site: a pass issued for another
+ * site (which can only verify here if both sites share a passSecret) answers wrong_site and is never valid. Optional for
+ * compatibility; recommended whenever more than one site could hold the same passSecret. Use one passSecret per site.
+ */
+export async function verifyLocalPass(token: string, o: { passSecret: string; policy?: PolicySource; resource?: Resource | null; identityOnly?: true; now?: number; site?: string }): Promise<{ valid: boolean; allowed: boolean; code: string; reason: string; identity_valid?: boolean; address?: string; assets_held?: string[]; expires_at?: string; key_id?: string | null }> {
   const early = (code: string) => ({ valid: false, allowed: false, code, reason: REASONS[code] || code }); // before the pass is verified: never valid
   const no = (code: string, extra = {}) => ({ valid: SCOPE.has(code), allowed: false, code, reason: REASONS[code] || code, ...extra });
   // 0.4.3: the authorization request is explicit. { identityOnly: true } (and no resource) is an identity-only check; a
@@ -469,6 +529,8 @@ export async function verifyLocalPass(token: string, o: { passSecret: string; po
   // 0.4.4: the HMAC key is checked like issuePass() checks it. 0.4.3 used whatever it was given, so passSecret: '' (an
   // unset environment variable) verified passes anyone can forge with an empty key.
   if (typeof o.passSecret !== 'string' || o.passSecret.length < 32) return early('bad_secret');
+  let site: string | null = null;
+  if (own(o, 'site')) { site = siteOrigin(o.site); if (!site) return early('bad_site'); }
   let req: Resource | null;
   if (own(o, 'identityOnly')) { if (o.identityOnly !== true || o.resource !== undefined) return early('bad_resource'); req = null; }
   else { try { req = validateResource(o.resource, 'verifyLocalPass'); } catch (e: any) { return early(e?.code === 'bad_path' ? 'bad_path' : 'bad_resource'); } if (!req) return early('bad_resource'); }
@@ -479,6 +541,7 @@ export async function verifyLocalPass(token: string, o: { passSecret: string; po
   if (got.length !== want.length || !timingSafeEqual(got, want)) return early('bad_pass');
   let p: any; try { p = JSON.parse(Buffer.from(m[1], 'base64url').toString('utf8')); } catch { return early('bad_pass'); }
   if (!p || typeof p !== 'object') return early('bad_pass');
+  if (site !== null && p.s !== site) return early('wrong_site');
   const now = o.now === undefined ? Date.now() : o.now;
   if (typeof now !== 'number' || !Number.isFinite(now)) return early('bad_input');
   if (!(p.e > now)) return early('expired');

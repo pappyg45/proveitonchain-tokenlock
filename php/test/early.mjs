@@ -6,6 +6,12 @@ import { fileURLToPath } from 'node:url';
 import { writeFileSync, rmSync, mkdirSync, mkdtempSync, symlinkSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import net from 'node:net';
+// RC5 (disclosed, test harness only): ports come from the OS and a php -S that exits at startup fails the start. Before,
+// ports were random in a ~900-port range: two servers could pick the same one, the second failed to bind, and its
+// requests reached the first server (seen once in the RC5 final run: early.mjs 'no early settings' got 302).
+const freePort = () => new Promise((ok, no) => { const s = net.createServer(); s.on('error', no); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => ok(p)); }); });
+const alive = async (proc, what) => { await new Promise((r) => setTimeout(r, 150)); if (proc.exitCode !== null || proc.signalCode) throw new Error(`${what}: php -S exited at startup (port in use?)`); };
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PHP = process.env.PHP || 'php';
@@ -43,7 +49,7 @@ mkdirSync(path.join(DOC, 'wp-admin')); writeFileSync(path.join(DOC, 'wp-admin', 
 symlinkSync(path.join(root, 'tokenlock'), path.join(DOC, 'tokenlock'));
 const servers = [];
 async function server(early, env = {}) {
-  const port = 19000 + Math.floor(Math.random() * 900) + servers.length;
+  const port = await freePort();
   const prepend = env.EARLY_MODE === 'include' ? [] : ['-d', 'auto_prepend_file=' + path.join(root, 'test/fixtures/early-prepend.php')];
   const p = spawn(PHP, ['-d', 'display_errors=0', '-d', 'log_errors=0', ...prepend, '-S', `127.0.0.1:${port}`, '-t', DOC], {
     cwd: root, stdio: 'ignore',
@@ -51,7 +57,7 @@ async function server(early, env = {}) {
   });
   servers.push(p);
   const base = `http://127.0.0.1:${port}`;
-  for (let i = 0; i < 60; i++) { try { await fetch(base + '/tokenlock/signin.php'); return base; } catch { await new Promise((r) => setTimeout(r, 50)); } }
+  for (let i = 0; i < 60; i++) { if (p.exitCode !== null) break; try { await fetch(base + '/tokenlock/signin.php'); await alive(p, base); return base; } catch (e) { if (/exited at startup/.test(e.message)) throw e; await new Promise((r) => setTimeout(r, 50)); } }
   throw new Error('php -S did not start');
 }
 const get = (base, p, headers = {}) => fetch(base + p, { redirect: 'manual', headers });

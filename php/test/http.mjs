@@ -4,6 +4,12 @@ import { spawn } from 'node:child_process';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import net from 'node:net';
+// RC5 (disclosed, test harness only): ports come from the OS and a php -S that exits at startup fails the start. Before,
+// ports were random in a ~900-port range: two servers could pick the same one, the second failed to bind, and its
+// requests reached the first server (seen once in the RC5 final run: early.mjs 'no early settings' got 302).
+const freePort = () => new Promise((ok, no) => { const s = net.createServer(); s.on('error', no); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => ok(p)); }); });
+const alive = async (proc, what) => { await new Promise((r) => setTimeout(r, 150)); if (proc.exitCode !== null || proc.signalCode) throw new Error(`${what}: php -S exited at startup (port in use?)`); };
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PHP = process.env.PHP || 'php';
@@ -116,10 +122,10 @@ try {
     assert.match(t, /You(?:'|\&rsquo;|&apos;).{0,2}re in/);
   });
   await step('0.4.0: token-only site without token_only → holders page 403 policy_required (no route policy)', async () => {
-    const port3 = 18000 + Math.floor(Math.random() * 900);
+    const port3 = await freePort();
     const p3 = spawn(PHP, ['-d', 'display_errors=0', '-S', `127.0.0.1:${port3}`, '-t', root], { cwd: root, env: { ...process.env, TOKENLOCK_API: API, TOKENLOCK_SITE_KEY: PK, TOKENLOCK_SECRET_KEY: SK, TOKENLOCK_CACHE_DIR: path.join(root, 'tokenlock', 'cache'), TOKENLOCK_TOKEN_ONLY: '' }, stdio: 'ignore' });
     try {
-      await new Promise((r) => setTimeout(r, 500));
+      await new Promise((r) => setTimeout(r, 500)); await alive(p3, 'port3');
       const r = await fetch(`http://127.0.0.1:${port3}/holders/`, { redirect: 'manual', headers: { cookie: 'tokenlock_pass=' + GOOD, accept: 'application/json' } });
       assert.equal(r.status, 403); assert.equal((await r.json()).code, 'policy_required');
     } finally { p3.kill(); }
@@ -189,10 +195,10 @@ try {
     const t = await r.text(); assert.match(t, /Please try again/); assert.doesNotMatch(t, /You(?:'|&rsquo;)re in/);
   });
   await step('0.4.2: TOKENLOCK_FAIL_OPEN=1 (removed option) is a configuration error → 500, nothing shown, outage or not', async () => {
-    const port2 = 18000 + Math.floor(Math.random() * 900);
+    const port2 = await freePort();
     const p2 = spawn(PHP, ['-d', 'display_errors=1', '-S', `127.0.0.1:${port2}`, '-t', root], { cwd: root, env: { ...process.env, TOKENLOCK_API: API, TOKENLOCK_SITE_KEY: PK, TOKENLOCK_SECRET_KEY: SK, TOKENLOCK_CACHE_DIR: path.join(root, 'tokenlock', 'cache'), TOKENLOCK_FAIL_OPEN: '1' }, stdio: 'ignore' });
     try {
-      await new Promise((r) => setTimeout(r, 500));
+      await new Promise((r) => setTimeout(r, 500)); await alive(p2, 'port2');
       for (const c of [DOWN, GOOD]) {
         const r = await fetch(`http://127.0.0.1:${port2}/holders/`, { redirect: 'manual', headers: { cookie: 'tokenlock_pass=' + c } });
         assert.equal(r.status, 500); assert.equal(r.headers.get('x-tokenlock'), null);

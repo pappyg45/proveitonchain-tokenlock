@@ -17,7 +17,7 @@ function setup(c) {
   let pass = SV.issuePass({ sub: ADDR, h: ['TOKENLOCK'], k, n: 'a'.repeat(32), s: 'https://app.example', i: NOW - 1000, e: c.pass === 'expired' ? NOW - 1 : NOW + 900e3 }, SECRET);
   if (c.pass === 'forged') pass = pass.slice(0, -4) + (pass.endsWith('AAAA') ? 'BBBB' : 'AAAA');
   let policy;
-  if (c.policy === 'registered_keys') policy = SV.localPolicy({ keys: [{ id: 'key_1', address: ADDR, status: c.key === 'revoked' ? 'revoked' : 'active', permissions: { routes: M.key.routes, methods: M.key.methods } }] });
+  if (c.policy === 'registered_keys') policy = SV.localPolicy({ keys: [{ id: 'key_1', address: ADDR, status: c.key === 'revoked' ? 'revoked' : 'active', permissions: { routes: M.key.routes, methods: M.key.methods, environments: M.key.environments } }] });
   if (c.policy === 'token') policy = SV.localPolicy({ mode: 'token' });
   return { pass, policy };
 }
@@ -69,7 +69,7 @@ test('Cloudflare worker 0.4.0: token-only site needs TOKENLOCK_TOKEN_ONLY=1; it 
     assert.equal(r.status, 403); assert.equal((await r.json()).code, 'policy_required', 'token-only site without TOKENLOCK_TOKEN_ONLY: denied');
     r = await get('/members/x', { ...env, TOKENLOCK_TOKEN_ONLY: '1' });
     assert.equal(r.status, 200); assert.equal(await r.text(), 'ORIGIN', 'with TOKENLOCK_TOKEN_ONLY=1: holder reaches the origin');
-    assert.ok(sent.every((s) => s.client === 'cf-worker/0.4.4'));
+    assert.ok(sent.every((s) => s.client === 'cf-worker/0.5.0'));
     registered = true;
     r = await get('/admin/x', { ...env, TOKENLOCK_TOKEN_ONLY: '1' });
     assert.equal(r.status, 403, 'registered keys: TOKENLOCK_TOKEN_ONLY cannot bypass the route policy'); assert.equal((await r.json()).code, 'route_not_allowed');

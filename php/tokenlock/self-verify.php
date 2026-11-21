@@ -85,13 +85,15 @@ function tokenlock_sv_json($v)
 // ------------------------------------------------------------------ assets
 function tokenlock_sv_normalize_asset($raw)
 {
-    $a = trim((string) $raw);
+    // 0.4.5 RC5 (deep review, Node/hosted parity): a string only; trims ASCII whitespace but not NUL (trim()'s default
+    // list has \0; Node and hosted refuse it); strtoupper is ASCII-only in PHP 8.
+    $a = is_string($raw) ? trim($raw, " \t\n\r\x0B") : '';
     $dot = strpos($a, '.');
     $a = ($dot !== false && $dot > 0) ? strtoupper(substr($a, 0, $dot)) . substr($a, $dot) : strtoupper($a);
     if (preg_match('/^[B-Z][A-Z]{3,11}$/', $a) || preg_match('/^A\d{12,21}$/', $a) || preg_match('/^([B-Z][A-Z]{3,11}|A\d{12,21})\.[a-zA-Z0-9.\-_@!]{1,200}$/', $a)) {
         return $a;
     }
-    tokenlock_sv_fail('bad_asset', '"' . substr((string) $raw, 0, 60) . '" is not a valid Bitcoin asset name.');
+    tokenlock_sv_fail('bad_asset', '"' . substr(is_string($raw) ? $raw : gettype($raw), 0, 60) . '" is not a valid Bitcoin asset name.');
 }
 
 // ------------------------------------------------------------------ challenge message (spec §2)
@@ -172,14 +174,23 @@ function tokenlock_sv_redis_store($redis, $prefix = 'tokenlock:nonce:')
     );
 }
 
+/** The origin of a site URL (scheme://host[:port], lowercase, default port dropped), or null. */
+function tokenlock_sv_site_origin($raw)
+{
+    $u = is_string($raw) ? parse_url($raw) : false;
+    if (!$u || empty($u['scheme']) || empty($u['host']) || !in_array(strtolower($u['scheme']), array('http', 'https'), true)) {
+        return null;
+    }
+    return strtolower($u['scheme']) . '://' . strtolower($u['host']) . (isset($u['port']) && !(($u['scheme'] === 'https' && $u['port'] == 443) || ($u['scheme'] === 'http' && $u['port'] == 80)) ? ':' . $u['port'] : '');
+}
+
 /** One-time challenge. Default lifetime 10 minutes (60 s to 30 min); pass lifetime default 15 min (60 s to 24 h). */
 function tokenlock_sv_create_challenge($o)
 {
-    $u = parse_url((string) ($o['site'] ?? ''));
-    if (!$u || empty($u['scheme']) || empty($u['host']) || !in_array(strtolower($u['scheme']), array('http', 'https'), true)) {
+    $site = tokenlock_sv_site_origin($o['site'] ?? '');
+    if ($site === null) {
         tokenlock_sv_fail('bad_site', '`site` must be your origin, e.g. https://shop.example');
     }
-    $site = strtolower($u['scheme']) . '://' . strtolower($u['host']) . (isset($u['port']) && !(($u['scheme'] === 'https' && $u['port'] == 443) || ($u['scheme'] === 'http' && $u['port'] == 80)) ? ':' . $u['port'] : '');
     $assets = array_values(array_unique(array_map('tokenlock_sv_normalize_asset', (array) ($o['assets'] ?? array()))));
     if (count($assets) > 10) {
         tokenlock_sv_fail('too_many_assets', 'At most 10 assets.');
@@ -359,12 +370,18 @@ function tokenlock_sv_http_json_provider($o)
     };
 }
 
-function tokenlock_sv_static_provider($map)
+/** Fixed holdings (tests, demos). $owners lists, per address, the names it OWNS ('how' => 'owner'); the rest of $map is a balance. */
+function tokenlock_sv_static_provider($map, $owners = array())
 {
-    return function ($address, $assets) use ($map) {
+    return function ($address, $assets) use ($map, $owners) {
         $have = $map[$address] ?? array();
+        $own = $owners[$address] ?? array();
         $out = array();
         foreach ($assets as $a) {
+            if (in_array($a, $own, true)) {
+                $out[$a] = array('held' => true, 'how' => 'owner');
+                continue;
+            }
             $h = in_array($a, $have, true);
             $out[$a] = array('held' => $h, 'how' => $h ? 'balance' : null);
         }
@@ -461,7 +478,28 @@ function tokenlock_sv_verify_policy_bundle($bundle, $o)
     if (isset($o['min_seq']) && $o['min_seq'] !== null && ($p['seq'] ?? -1) < $o['min_seq']) {
         tokenlock_sv_fail('policy_rollback', 'Policy bundle is older than one already seen.', 502);
     }
+    // 0.4.5 RC5 (H1, client side): a bundle that drops registered-keys mode is accepted only when its state_version is
+    // higher than the bundle it replaces ('previous': the last accepted policy, or array('mode', 'state_version')).
+    $prev = $o['previous'] ?? null;
+    if (is_array($prev) && ($prev['mode'] ?? null) === 'registered_keys' && ($p['mode'] ?? null) !== 'registered_keys' && !(tokenlock_sv_state_version($p) > tokenlock_sv_state_version($prev))) {
+        tokenlock_sv_fail('policy_downgrade', 'Policy bundle drops registered-keys mode without a newer state version.', 502);
+    }
     return $p;
+}
+
+function tokenlock_sv_state_version($p)
+{
+    $v = tokenlock_sv_whole($p['state_version'] ?? null);
+    return $v === null ? -1 : $v;
+}
+
+// 0.4.5 RC5 (deep review, Node parity): a JSON whole number 0 .. 2^53-1 (Number.isSafeInteger in Node), also when JSON
+// wrote it as an integral float (1e0); returns it as an int, else null. PHP accepted 2^53 .. 2^63-1 and refused 1e0.
+function tokenlock_sv_whole($v)
+{
+    if (is_int($v)) return ($v >= 0 && $v <= 9007199254740991) ? $v : null;
+    if (is_float($v) && is_finite($v) && floor($v) == $v && $v >= 0 && $v <= 9007199254740991) return (int) $v;
+    return null;
 }
 
 /**
@@ -488,6 +526,9 @@ function tokenlock_sv_signed_policy($o)
             }
             $seq = $c['seq'] ?? null;
         }
+        // 0.4.5 RC5 (H1): the mode and state version of the last accepted bundle survive in the cache record even after the
+        // cached bundle itself expires, so a later downgrade is still compared against them.
+        $prev = $cur ? $cur : ((is_array($c) && isset($c['mode'])) ? array('mode' => $c['mode'], 'state_version' => $c['state_version'] ?? null) : null);
         if (!$cur || $now - (int) ($c['fetched_at'] ?? 0) > ($o['refresh_seconds'] ?? 60) * 1000) {
             try {
                 if (isset($o['load'])) {
@@ -498,24 +539,93 @@ function tokenlock_sv_signed_policy($o)
                         throw new TokenlockSelfVerifyError('policy_unavailable', 'Policy endpoint answered ' . $st, 503);
                     }
                 }
-                $p = tokenlock_sv_verify_policy_bundle($b, array('public_keys' => $o['public_keys'], 'site_id' => $o['site_id'], 'now' => $now, 'min_seq' => $seq));
-                $tmp = $file . '.' . bin2hex(random_bytes(4));
-                if (@file_put_contents($tmp, tokenlock_sv_json(array('bundle' => $b, 'seq' => $p['seq'], 'fetched_at' => $now))) !== false) {
-                    @chmod($tmp, 0600);
-                    @rename($tmp, $file);
-                }
-                return $p;
+                $p = tokenlock_sv_verify_policy_bundle($b, array('public_keys' => $o['public_keys'], 'site_id' => $o['site_id'], 'now' => $now, 'min_seq' => $seq, 'previous' => $prev));
+                return tokenlock_sv_policy_cache_commit($file, $b, $p, $now, function ($bundle) use ($o, $now) {
+                    return tokenlock_sv_verify_policy_bundle($bundle, array('public_keys' => $o['public_keys'], 'site_id' => $o['site_id'], 'now' => $now));
+                });
             } catch (Throwable $e) {
-                if ($e instanceof TokenlockSelfVerifyError && $e->tlcode === 'policy_rollback') {
+                if ($e instanceof TokenlockSelfVerifyError && ($e->tlcode === 'policy_rollback' || $e->tlcode === 'policy_downgrade' || $e->tlcode === 'policy_cache_failed')) {
                     throw $e;
                 }
-                if (!$cur) {
+                // 0.5.0 RC6: the cached bundle is a fallback only while the cache can be written. If it cannot, a newer
+                // bundle accepted by an earlier request may never have reached the disk, so the record on disk may be
+                // older than what was already enforced: fail closed instead of falling back to it.
+                if (!$cur || !tokenlock_sv_policy_cache_writable($file)) {
                     throw ($e instanceof TokenlockSelfVerifyError) ? $e : new TokenlockSelfVerifyError('policy_unavailable', 'Could not load the policy bundle.', 503);
                 }
             }
         }
         return $cur;
     };
+}
+
+/**
+ * 0.5.0 RC6 (PHP policy cache): store a newly accepted bundle so the disk record never falls behind the newest policy
+ * any worker accepted. RC5 wrote without a lock and ignored write failures, so (a) two overlapping refreshes could leave
+ * the OLDER bundle on disk (a revocation in the newer one was then ignored by later requests, and used as the fallback
+ * during an API outage), and (b) a failed write left the previous bundle as the fallback. Now:
+ *   - updates are serialized with flock() on "<cache>.lock", and the record is re-read under the lock;
+ *   - the bundle with the higher seq wins: if a concurrent refresh already stored a newer one, that one is returned;
+ *   - if the new record cannot be written, the old record is deleted, so no older bundle can be used as a fallback
+ *     later; if it cannot be deleted either, the refresh fails closed (policy_cache_failed, 503).
+ */
+function tokenlock_sv_policy_cache_commit($file, $bundle, $p, $now, $verify)
+{
+    $lock = @fopen($file . '.lock', 'c');
+    $locked = $lock !== false && @flock($lock, LOCK_EX);
+    if (!$locked) {
+        if ($lock !== false) {
+            @fclose($lock);
+        }
+        tokenlock_sv_policy_cache_drop($file);
+        return $p;
+    }
+    try {
+        clearstatcache(true, $file);
+        $c = is_file($file) ? json_decode((string) @file_get_contents($file), true) : null;
+        $stored = (is_array($c) && isset($c['bundle'])) ? tokenlock_sv_whole($c['seq'] ?? null) : null;
+        $mine = tokenlock_sv_whole($p['seq']);
+        if ($stored !== null && $stored > $mine) {
+            // A concurrent refresh stored a newer bundle: it wins (never write an older one over it).
+            try {
+                return call_user_func($verify, $c['bundle']);
+            } catch (TokenlockSelfVerifyError $e) {
+                throw new TokenlockSelfVerifyError('policy_cache_failed', 'A newer cached policy exists but cannot be used.', 503);
+            }
+        }
+        if ($stored !== null && $stored === $mine) {
+            return $p; // the same bundle is already stored
+        }
+        $tmp = $file . '.' . bin2hex(random_bytes(4));
+        $ok = @file_put_contents($tmp, tokenlock_sv_json(array('bundle' => $bundle, 'seq' => $p['seq'], 'mode' => $p['mode'], 'state_version' => $p['state_version'] ?? null, 'fetched_at' => $now))) !== false;
+        if ($ok) {
+            @chmod($tmp, 0600);
+            $ok = @rename($tmp, $file);
+        }
+        if (!$ok) {
+            @unlink($tmp);
+            tokenlock_sv_policy_cache_drop($file);
+        }
+        return $p;
+    } finally {
+        @flock($lock, LOCK_UN);
+        @fclose($lock);
+    }
+}
+
+function tokenlock_sv_policy_cache_writable($file)
+{
+    clearstatcache(true, $file);
+    return @is_writable(dirname($file)) && (!is_file($file) || @is_writable($file));
+}
+
+function tokenlock_sv_policy_cache_drop($file)
+{
+    @unlink($file);
+    clearstatcache(true, $file);
+    if (is_file($file)) {
+        throw new TokenlockSelfVerifyError('policy_cache_failed', 'The policy cache could not be updated or removed.', 503);
+    }
 }
 
 function tokenlock_sv_is_list($a)
@@ -570,7 +680,7 @@ function tokenlock_sv_validate_policy($p, $now = null, $signed = false)
     if (!isset($p['site_id']) || !is_string($p['site_id']) || $p['site_id'] === '') {
         $bad('site_id');
     }
-    if (!isset($p['seq']) || !is_int($p['seq']) || $p['seq'] < 0) {
+    if (!isset($p['seq']) || tokenlock_sv_whole($p['seq']) === null) {
         $bad('seq must be a whole number >= 0');
     }
     $iss = tokenlock_sv_ms($p['issued_at'] ?? null);
@@ -618,6 +728,9 @@ function tokenlock_sv_validate_policy($p, $now = null, $signed = false)
     if (array_key_exists('settings', $p) && $p['settings'] !== null && (!is_array($p['settings']) || ($p['settings'] !== array() && tokenlock_sv_is_list($p['settings'])))) {
         $bad('settings');
     }
+    if (array_key_exists('state_version', $p) && tokenlock_sv_whole($p['state_version']) === null) {
+        $bad('state_version must be a whole number >= 0');
+    }
     if (!tokenlock_sv_is_list($p['keys'] ?? null)) {
         $bad('keys must be a list');
     }
@@ -653,7 +766,28 @@ function tokenlock_sv_validate_policy($p, $now = null, $signed = false)
                     $bad("key permissions.$f must be a list");
                 }
             }
+            // 0.4.5 RC3 (contract 1.1 section 5): permissions is a closed object; an unknown field makes the policy invalid.
+            foreach (array_keys($pm) as $f) {
+                if (!in_array($f, array('routes', 'methods', 'environments'), true)) {
+                    $bad("key permissions.$f is not a known field");
+                }
+            }
         }
+    }
+    // 0.4.5 RC5 (S2): one entry per address (case-insensitive) and per id. Two entries for one address are ambiguous; RC3
+    // used the first one, so a later revoked entry was ignored. Ambiguous data never increases access.
+    $ids = array();
+    $addrs = array();
+    foreach ($p['keys'] as $k) {
+        $a = strtolower($k['address']);
+        if (isset($ids[$k['id']])) {
+            $bad('duplicate key id ' . substr($k['id'], 0, 40));
+        }
+        if (isset($addrs[$a])) {
+            $bad('duplicate key address');
+        }
+        $ids[$k['id']] = true;
+        $addrs[$a] = true;
     }
 }
 
@@ -688,10 +822,8 @@ function tokenlock_sv_route_matches($pattern, $path)
         $base = rtrim(substr($p, 0, -2), '/');
         return $q === $base || strpos($q, $base . '/') === 0 || ($base === '' && strpos($q, '/') === 0);
     }
-    if (substr($p, -1) === '/' && strlen($p) > 1) {
-        $base = rtrim($p, '/');
-        return $q === $base || strpos($q, $base . '/') === 0;
-    }
+    // 0.4.5 RC2 (contract v1): only a trailing "/*" is a prefix. "/api/" is the exact route /api; RC1 and earlier read it
+    // as the prefix /api/* (a broader grant than written).
     return $q === rtrim($p, '/') || ($p === '/' && $q === '/');
 }
 
@@ -783,14 +915,27 @@ function tokenlock_sv_evaluate($policy, $address, $held, $resource = null, $now 
         return $no($held ? 'entitlement_revoked' : 'not_holder');
     }
     if ($resource) {
-        $perm = $key['permissions'] ?? array();
-        $routes = $perm['routes'] ?? array('*');
-        $methods = $perm['methods'] ?? array('*');
-        $envs = $perm['environments'] ?? array();
+        // 0.4.5: a grant must be explicit. permissions missing, null or not an array, or routes / methods missing, null or
+        // not a list of strings: the key is refused (policy_invalid). 0.4.4 read a missing or null routes / methods as
+        // array('*'), so a key with no permissions could call any route with any method. array() grants nothing; only an
+        // explicit '*' is a wildcard.
+        $perm = $key['permissions'] ?? null;
+        if (!is_array($perm)) {
+            return $no('policy_invalid');
+        }
+        $routes = $perm['routes'] ?? null;
+        $methods = $perm['methods'] ?? null;
+        // 0.4.5 RC2 (contract v1): environments is required too (missing or null is policy_invalid; RC1 read it as
+        // array()). array('*') is any environment. A restricted list denies a request whose environment is omitted or not
+        // listed (RC1 skipped the check when the request had no environment). array() grants no environment
+        // (contract 1.1 section 5; RC2 read it as any).
+        $envs = $perm['environments'] ?? null;
         if (!tokenlock_sv_str_list($routes) || !tokenlock_sv_str_list($methods) || !tokenlock_sv_str_list($envs)) {
             return $no('policy_invalid');
         }
-        if (!empty($resource['environment']) && $envs && !in_array('*', $envs, true) && !in_array($resource['environment'], $envs, true)) {
+        $renv = isset($resource['environment']) ? (string) $resource['environment'] : '';
+        // 0.4.5 RC3 (contract 1.1, U1): an empty environments list grants no environment (RC2 read [] as any).
+        if (!in_array('*', $envs, true) && !($renv !== '' && in_array($renv, $envs, true))) {
             return $no('environment_not_allowed');
         }
         if (isset($resource['path']) && $resource['path'] !== '') {
@@ -820,7 +965,7 @@ function tokenlock_sv_evaluate($policy, $address, $held, $resource = null, $now 
 function tokenlock_sv_reasons()
 {
     return array(
-        'ok' => 'Signed in.', 'bad_pass' => 'Not a valid pass.', 'route_not_allowed' => 'This key is not allowed on this route.', 'method_not_allowed' => 'This key is not allowed to use this method here.',
+        'ok' => 'Signed in.', 'bad_pass' => 'Not a valid pass.', 'bad_name' => 'Names are 4–12 letters A–Z and do not start with A.', 'wrong_site' => 'This pass was issued for another site.', 'bad_site' => '`site` must be your origin, e.g. https://shop.example.', 'route_not_allowed' => 'This key is not allowed on this route.', 'method_not_allowed' => 'This key is not allowed to use this method here.',
         'environment_not_allowed' => 'This key is not allowed in this environment.', 'bad_path' => 'Not a valid path.', 'unknown_challenge' => 'This sign-in request is unknown or was already used. Start again.',
         'expired' => 'This sign-in request expired. Start again.', 'bad_signature' => 'The signature does not match this address and message.', 'bad_address' => 'Not a Bitcoin address we support.',
         'not_holder' => 'This wallet does not hold the token.', 'lookup_failed' => 'Could not read holdings right now. Try again in a minute.', 'lookup_disagreement' => 'Holdings sources disagree. Try again in a minute.',
@@ -880,16 +1025,24 @@ function tokenlock_sv_verify_sign_in($input, $cfg, $now = null)
         }
     }
     $want = $rec['assets'];
+    // 0.5.0 RC6 (S1, option A): "any name on Bitcoin" means a registered name (4-12 letters A-Z, not starting with A) that
+    // this address OWNS, as on hosted sign-in. RC5 accepted any asset name (numeric A... assets included) with any positive
+    // balance. A name that is not a registered name answers bad_name, like hosted.
+    $anyName = null;
     if (!empty($rec['any_name'])) {
-        if (empty($input['name'])) {
+        $raw = $input['name'] ?? null;
+        if ($raw === null || $raw === '') {
             if (!$want) {
                 return $out('name_required', array('address' => $address));
             }
         } else {
-            try {
-                $want[] = tokenlock_sv_normalize_asset($input['name']);
-            } catch (TokenlockSelfVerifyError $e) {
-                return $out('bad_asset', array('address' => $address));
+            $n = is_string($raw) ? strtoupper(trim($raw, " \t\n\r\x0B")) : '';
+            if (!preg_match('/^[B-Z][A-Z]{3,11}$/', $n)) {
+                return $out('bad_name', array('address' => $address));
+            }
+            $anyName = $n;
+            if (!in_array($n, $want, true)) {
+                $want[] = $n;
             }
         }
     }
@@ -898,8 +1051,12 @@ function tokenlock_sv_verify_sign_in($input, $cfg, $now = null)
     } catch (Throwable $e) {
         return $out(($e instanceof TokenlockSelfVerifyError && $e->tlcode === 'lookup_disagreement') ? 'lookup_disagreement' : 'lookup_failed', array('address' => $address));
     }
-    $held = array_values(array_filter($want, function ($a) use ($h) {
-        return is_array($h) && isset($h[$a]) && is_array($h[$a]) && ($h[$a]['held'] ?? null) === true;
+    // The site's listed assets count with any positive balance; the "any name" only when owned.
+    $held = array_values(array_filter($want, function ($a) use ($h, $rec, $anyName) {
+        if (!(is_array($h) && isset($h[$a]) && is_array($h[$a]) && ($h[$a]['held'] ?? null) === true)) {
+            return false;
+        }
+        return in_array($a, $rec['assets'], true) || ($a === $anyName && ($h[$a]['how'] ?? null) === 'owner');
     }));
     if (!$held) {
         return $out('not_holder', array('address' => $address, 'assets_held' => array()));
@@ -958,7 +1115,7 @@ function tokenlock_sv_verify_local_pass($token, $o)
         return $early('bad_resource');
     }
     foreach (array_keys($o) as $k) {
-        if (!in_array($k, array('pass_secret', 'policy', 'resource', 'identity_only', 'now'), true)) {
+        if (!in_array($k, array('pass_secret', 'policy', 'resource', 'identity_only', 'now', 'site'), true)) {
             return $early('bad_resource');
         }
     }
@@ -966,6 +1123,16 @@ function tokenlock_sv_verify_local_pass($token, $o)
     // missing or empty pass_secret verified passes anyone can forge with an empty key.
     if (!isset($o['pass_secret']) || !is_string($o['pass_secret']) || strlen($o['pass_secret']) < 32) {
         return $early('bad_secret');
+    }
+    // 0.5.0 RC6: 'site' (your origin, as given to tokenlock_sv_create_challenge) binds the check to this site: a pass issued
+    // for another site (possible only when both share a pass_secret) answers wrong_site and is never valid. Optional for
+    // compatibility; use one pass_secret per site.
+    $site = null;
+    if (array_key_exists('site', $o)) {
+        $site = tokenlock_sv_site_origin($o['site']);
+        if ($site === null) {
+            return $early('bad_site');
+        }
     }
     if (array_key_exists('identity_only', $o)) {
         if ($o['identity_only'] !== true || array_key_exists('resource', $o)) {
@@ -989,6 +1156,9 @@ function tokenlock_sv_verify_local_pass($token, $o)
     $p = json_decode((string) tokenlock_sv_b64url_decode($m[1]), true);
     if (!is_array($p)) {
         return $early('bad_pass');
+    }
+    if ($site !== null && ($p['s'] ?? null) !== $site) {
+        return $early('wrong_site');
     }
     $now = $o['now'] ?? tokenlock_sv_now();
     if (!is_int($now) && !is_float($now)) {

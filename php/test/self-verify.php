@@ -147,7 +147,10 @@ same(tokenlock_sv_verify_sign_in($in(0, array('address' => $B)), $cfg(), $SI['no
 $put($store);
 same(tokenlock_sv_verify_sign_in($in(1), $cfg(), $SI['now'] + 1000)['code'], 'not_holder', 'p2tr signer without the token');
 $put($store);
-same(tokenlock_sv_verify_sign_in($in(1, array('name' => 'pepecash')), $cfg(), $SI['now'] + 1000)['code'], 'ok', 'any_name: p2tr holder of the named asset');
+// RC6 (S1 option A, U16): the name must be OWNED. A balance of it is not enough (hosted parity).
+same(tokenlock_sv_verify_sign_in($in(1, array('name' => 'pepecash')), $cfg(), $SI['now'] + 1000)['code'], 'not_holder', 'any_name: p2tr with only a balance of the named asset is not a holder of a name');
+$put($store);
+same(tokenlock_sv_verify_sign_in($in(1, array('name' => 'pepecash')), $cfg(array('holdings' => tokenlock_sv_static_provider(array($A => array('GOTPROOF')), array($B => array('PEPECASH'))))), $SI['now'] + 1000)['code'], 'ok', 'any_name: p2tr owner of the named asset');
 $put($store);
 $down = function () {
     throw new TokenlockSelfVerifyError('lookup_failed', 'down', 502);
@@ -157,7 +160,7 @@ $put($store);
 same(tokenlock_sv_verify_sign_in($in(0), $cfg(array('holdings' => tokenlock_sv_first_available(array($down, tokenlock_sv_static_provider(array($A => array('GOTPROOF'))))))), $SI['now'] + 1000)['code'], 'ok', 'first_available falls through');
 $put($store);
 same(tokenlock_sv_verify_sign_in($in(0), $cfg(array('holdings' => tokenlock_sv_require_agreement(array(tokenlock_sv_static_provider(array($A => array('GOTPROOF'))), tokenlock_sv_static_provider(array()))))), $SI['now'] + 1000)['code'], 'lookup_disagreement', 'require_agreement fails closed on disagreement');
-$polLocal = tokenlock_sv_local_policy(array('keys' => array(array('id' => 'key_a', 'address' => $A, 'status' => 'active', 'owner_type' => 'agent', 'permissions' => array('routes' => array('/api/*'), 'methods' => array('GET')))), 'settings' => array('agent_pass_ttl_s' => 120)));
+$polLocal = tokenlock_sv_local_policy(array('keys' => array(array('id' => 'key_a', 'address' => $A, 'status' => 'active', 'owner_type' => 'agent', 'permissions' => array('routes' => array('/api/*'), 'methods' => array('GET'), 'environments' => array('*')))), 'settings' => array('agent_pass_ttl_s' => 120)));
 $put($store);
 $r = tokenlock_sv_verify_sign_in($in(0), $cfg(array('policy' => $polLocal)), $SI['now'] + 1000);
 same(array($r['code'], $r['key_id'], $r['expires_at']), array('ok', 'key_a', tokenlock_sv_iso($SI['now'] + 1000 + 120000)), 'registered key: bound key id, agent pass TTL');
@@ -207,7 +210,10 @@ if (is_file($sdk . '/dist/self-verify.js')) {
     $o = trim((string) shell_exec('node -e ' . escapeshellarg($js) . ' ' . escapeshellarg($php) . ' ' . escapeshellarg($secret) . ' 2>&1'));
     same($o, 'ok', 'pass issued by PHP verifies in Node');
 } else {
-    echo "  - (Node SDK not found: PHP→Node pass check skipped)\n";
+    echo "  - (Node SDK not found: PHP→Node pass check SKIPPED)\n";
+    if (getenv('TL_CI') === '1') { // RC5 runner audit (disclosed): a skip fails in CI mode
+        same('skipped', 'ran', 'TL_CI=1: PHP→Node pass check must run (set TOKENLOCK_SDK_DIR to a built SDK)');
+    }
 }
 
 echo "signed policy source (disk cache, refresh, fail closed)\n";
@@ -242,10 +248,14 @@ $sign = function ($payload) use ($sk, $P, $pubx) {
     $e = gmp_mod(TokenlockSecp::int(tokenlock_tagged_hash('BIP0340/challenge', $rx . $pubx . $msg)), $n);
     return bin2hex($rx . TokenlockSecp::bytes32(gmp_mod(gmp_add($k, gmp_mul($e, $d)), $n)));
 };
-$mk = function ($seq, $ttl, $mode = 'registered_keys') use ($sign) {
+$mk = function ($seq, $ttl, $mode = 'registered_keys', $sv = null) use ($sign) {
     $now = tokenlock_sv_now();
-    $p = tokenlock_sv_json(array('v' => 1, 'typ' => 'tokenlock.policy', 'site_id' => 'site_fixture', 'seq' => $seq, 'issued_at' => tokenlock_sv_iso($now), 'expires_at' => tokenlock_sv_iso($now + $ttl * 1000),
-        'mode' => $mode, 'orgs' => array(), 'revoked_assets' => array(), 'keys' => array()));
+    $pa = array('v' => 1, 'typ' => 'tokenlock.policy', 'site_id' => 'site_fixture', 'seq' => $seq, 'issued_at' => tokenlock_sv_iso($now), 'expires_at' => tokenlock_sv_iso($now + $ttl * 1000),
+        'mode' => $mode, 'orgs' => array(), 'revoked_assets' => array(), 'keys' => array());
+    if ($sv !== null) {
+        $pa['state_version'] = $sv; // 0.4.5 RC5: a mode drop needs a higher state_version (H1 client guard)
+    }
+    $p = tokenlock_sv_json($pa);
     return array('v' => 1, 'typ' => 'tokenlock.policy-bundle', 'alg' => 'BIP340', 'kid' => 'tk', 'payload' => tokenlock_sv_b64url($p), 'sig' => $sign($p));
 };
 $keys = array('tk' => bin2hex($pubx));
@@ -263,7 +273,7 @@ $serve = $mk(9, 600);
 throws_code(function () use ($s0) {
     $s0();
 }, 'policy_rollback', 'older seq from the endpoint rejected');
-$serve = $mk(11, 600, 'token');
+$serve = $mk(11, 600, 'token', 1); // RC5: was $mk(11, 600, 'token') — a registered→token drop now needs a newer state_version
 same($s0()['mode'], 'token', 'newer bundle replaces cache');
 // expired cache + endpoint down = fail closed
 file_put_contents(glob($cache . '/tokenlock_policy_*.json')[0], tokenlock_sv_json(array('bundle' => $mk(12, -1), 'seq' => 12, 'fetched_at' => 0)));

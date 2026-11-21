@@ -56,10 +56,13 @@ export function createEnterpriseVerifier(o) {
      * `policy_expired` / `policy_unavailable` if the bundle cannot be used.
      */
     async checkPass(pass, { path, method, environment } = {}) {
+      // 0.4.5: environment is optional; send it only when the caller gave one (0.4.4 always sent environment: undefined,
+      // which the strict resource schema refuses as bad_resource).
+      const resource = environment === undefined ? { path, method } : { path, method, environment };
       const v = await SV.verifyLocalPass(pass, {
         passSecret: o.passSecret,
         policy,
-        resource: { path, method, environment },
+        resource,
       });
       return { ok: !!(v.valid && v.allowed), ...v };
     },

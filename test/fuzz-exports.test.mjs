@@ -36,7 +36,7 @@ const iso = (ms) => new Date(ms).toISOString();
 const NOW = Date.now();
 const OKRES = { path: '/members/x', method: 'GET' };
 const policy = (o = {}) => ({ v: 1, typ: 'tokenlock.policy', site_id: 'local', seq: 1, issued_at: iso(NOW - 60e3), expires_at: iso(NOW + 3600e3), orgs: [], revoked_assets: [], keys: [], ...o });
-const KEY = { id: 'k1', address: A, status: 'active', permissions: { routes: ['/*'], methods: ['*'] } };
+const KEY = { id: 'k1', address: A, status: 'active', permissions: { routes: ['/*'], methods: ['*'], environments: ['*'] } };
 const REG = policy({ mode: 'registered_keys', keys: [KEY] });
 const TOK = policy({ mode: 'token', assets: ['GOTPROOF'] });
 const TIME_BAD = {
