@@ -17,15 +17,58 @@ export function tokenlock(opts: TokenlockNextOptions) {
   const guard = createGuard(opts, 'tokenlock (next)');
   return async function middleware(req: NextRequest) {
     const raw = rawPathOf(req);
-    const d = await guard.decide({ rawPath: raw, search: req.nextUrl.search, method: req.method, accept: req.headers.get('accept'), pass: readPass(req as any, guard.cookieName), url: req.url });
+    const routing = nextRouting(req);
+    const d = await guard.decide({ rawPath: raw, appPath: appPathOf(raw, routing), search: req.nextUrl.search, method: req.method, accept: req.headers.get('accept'), pass: readPass(req as any, guard.cookieName), url: req.url });
     if (d.action === 'skip') return NextResponse.next();
     if (d.action === 'allow') return NextResponse.next();
     const res = d.action === 'json'
       ? NextResponse.json(d.body, { status: d.status, headers: { 'cache-control': 'no-store', ...(d.headers || {}) } })
-      : NextResponse.redirect(d.location);
+      : NextResponse.redirect(withBasePath(d.location, routing.basePath));
     if (d.clearCookie) res.headers.append('set-cookie', signOutCookie(opts, req.url));
     return res;
   };
+}
+/**
+ * 0.4.5 RC5: the path Next.js routes on: the raw path without the basePath and without the locale prefix (i18n). Next
+ * routes /docs/fr/members to pages/members, and its own matcher patterns leave both out, so `protect` is matched the same
+ * way. basePath and locales come from Next's build-time config (process.env.__NEXT_ROUTER_BASEPATH / __NEXT_I18N_CONFIG,
+ * which Next inlines into the middleware bundle) and from req.nextUrl. With basePath AND i18n, Next 15 hands middleware a
+ * URL like /fr/docs/fr/members (basePath reported as ''), so one basePath and up to two locale segments are stripped in
+ * any order. Locale segments compare case-insensitively after one percent-decoding, like Next's locale detection.
+ * Stripping too much only adds a path that is checked as well: the guard locks if either path is protected.
+ * null when there is nothing to strip.
+ */
+function nextRouting(req: NextRequest): { basePath: string; locales: string[] } {
+  let basePath = '', locales: string[] = [];
+  try { const b = process.env.__NEXT_ROUTER_BASEPATH as unknown; if (typeof b === 'string') basePath = b; } catch { /* not built by Next */ }
+  try {
+    const c = process.env.__NEXT_I18N_CONFIG as unknown;
+    const cfg: any = typeof c === 'string' ? (c ? JSON.parse(c) : null) : c;
+    if (cfg && Array.isArray(cfg.locales)) locales = cfg.locales.filter((x: unknown) => typeof x === 'string' && x);
+  } catch { /* not built by Next */ }
+  const nu: any = req.nextUrl || {};
+  if (!basePath && typeof nu.basePath === 'string') basePath = nu.basePath;
+  if (typeof nu.locale === 'string' && nu.locale && !locales.includes(nu.locale)) locales.push(nu.locale);
+  if (!/^\/[^?#]*[^/?#]$/.test(basePath)) basePath = '';
+  return { basePath, locales };
+}
+function appPathOf(raw: string, r: { basePath: string; locales: string[] }): string | null {
+  let p = raw, baseLeft = !!r.basePath, localesLeft = r.locales.length ? 2 : 0;
+  const lower = r.locales.map((x) => x.toLowerCase());
+  for (let i = 0; i < 3; i++) {
+    const b = r.basePath;
+    if (baseLeft && p.toLowerCase().startsWith(b.toLowerCase()) && (p.length === b.length || p[b.length] === '/')) { p = p.slice(b.length) || '/'; baseLeft = false; continue; }
+    const m = p.match(/^\/([^/]+)(\/.*)?$/);
+    if (localesLeft && m) { let seg = m[1]; try { seg = decodeURIComponent(seg); } catch { /* left as is */ } if (lower.includes(seg.toLowerCase())) { p = m[2] || '/'; localesLeft--; continue; } }
+    break;
+  }
+  return p === raw ? null : p;
+}
+/** A redirect to the sign-in page stays under the app's basePath (RC4 sent /signin, a 404 outside it). */
+function withBasePath(location: string | URL, base: string): string {
+  const s = String(location);
+  if (!base) return s;
+  try { const u = new URL(s); if (!u.pathname.startsWith(base + '/') && u.pathname !== base) u.pathname = base + u.pathname; return u.toString(); } catch { return s; }
 }
 /** The path as sent (before Next's own decoding), so encoded tricks are seen and rejected. */
 function rawPathOf(req: NextRequest): string {

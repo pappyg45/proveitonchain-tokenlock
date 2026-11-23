@@ -1,0 +1,56 @@
+{
+ "public_keys": {
+  "k1": "b2422d7eae3bb292732aaa79223f0d78479f0fd8c5bd1dc269a4ac5edfbb4aa4"
+ },
+ "address": "bc1qagentaddressxxxxxxxxxxxxxxxxxxxxxxxx",
+ "bundles": {
+  "registered_v7_revoked": {
+   "v": 1,
+   "typ": "tokenlock.policy-bundle",
+   "alg": "BIP340",
+   "kid": "k1",
+   "payload": "eyJ2IjoxLCJ0eXAiOiJ0b2tlbmxvY2sucG9saWN5Iiwic2l0ZV9pZCI6InNpdGUxIiwic2VxIjoxMCwic3RhdGVfdmVyc2lvbiI6NywiaXNzdWVkX2F0IjoiMjAyNi0xMS0xOVQwMDowMDowMC4wMDBaIiwiZXhwaXJlc19hdCI6IjIwOTktMDEtMDFUMDA6MDA6MDAuMDAwWiIsIm1vZGUiOiJyZWdpc3RlcmVkX2tleXMiLCJvcmdzIjpbXSwicmV2b2tlZF9hc3NldHMiOltdLCJrZXlzIjpbeyJpZCI6ImtleV9hIiwiYWRkcmVzcyI6ImJjMXFhZ2VudGFkZHJlc3N4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHgiLCJzdGF0dXMiOiJyZXZva2VkIiwib3duZXJfdHlwZSI6ImFnZW50Iiwib3JnX2lkIjpudWxsLCJhc3NldHMiOltdLCJwZXJtaXNzaW9ucyI6eyJyb3V0ZXMiOlsiL21lbWJlcnMvKiJdLCJtZXRob2RzIjpbIkdFVCJdLCJlbnZpcm9ubWVudHMiOlsicHJvZHVjdGlvbiJdfSwiZXhwaXJlc19hdCI6bnVsbCwicGFzc190dGxfcyI6bnVsbH1dfQ",
+   "sig": "7cc2a0db5ac8bf6c566d7e464cfc05a8d980c522159963c469b73e13afdbf64ed9ea23255a99951b83f75aa8efa21c11595d72d1eaa8816a65970cf663bb5381"
+  },
+  "token_v0_after_loss": {
+   "v": 1,
+   "typ": "tokenlock.policy-bundle",
+   "alg": "BIP340",
+   "kid": "k1",
+   "payload": "eyJ2IjoxLCJ0eXAiOiJ0b2tlbmxvY2sucG9saWN5Iiwic2l0ZV9pZCI6InNpdGUxIiwic2VxIjoyMCwic3RhdGVfdmVyc2lvbiI6MCwiaXNzdWVkX2F0IjoiMjAyNi0xMS0xOVQwMDowMDowMC4wMDBaIiwiZXhwaXJlc19hdCI6IjIwOTktMDEtMDFUMDA6MDA6MDAuMDAwWiIsIm1vZGUiOiJ0b2tlbiIsIm9yZ3MiOltdLCJyZXZva2VkX2Fzc2V0cyI6W10sImtleXMiOltdfQ",
+   "sig": "965f06b14f54b2ca00187541e9a41dd1b1783752df1d361b4747991a569320fc403a7d32b32b48b9929262ada83a24dcedb4c4ca6e5874c7dceab276c9e31f2c"
+  },
+  "token_v7_same_version": {
+   "v": 1,
+   "typ": "tokenlock.policy-bundle",
+   "alg": "BIP340",
+   "kid": "k1",
+   "payload": "eyJ2IjoxLCJ0eXAiOiJ0b2tlbmxvY2sucG9saWN5Iiwic2l0ZV9pZCI6InNpdGUxIiwic2VxIjoyMSwic3RhdGVfdmVyc2lvbiI6NywiaXNzdWVkX2F0IjoiMjAyNi0xMS0xOVQwMDowMDowMC4wMDBaIiwiZXhwaXJlc19hdCI6IjIwOTktMDEtMDFUMDA6MDA6MDAuMDAwWiIsIm1vZGUiOiJ0b2tlbiIsIm9yZ3MiOltdLCJyZXZva2VkX2Fzc2V0cyI6W10sImtleXMiOltdfQ",
+   "sig": "c16f23ae56076fbf444dc5662f38d7b8de69458274d224933783431e24b641aa0baeaf6788e9538c8d15fe676971f0823ad7878bc3bf16a1f6c3b89fa97f7467"
+  },
+  "token_no_version": {
+   "v": 1,
+   "typ": "tokenlock.policy-bundle",
+   "alg": "BIP340",
+   "kid": "k1",
+   "payload": "eyJ2IjoxLCJ0eXAiOiJ0b2tlbmxvY2sucG9saWN5Iiwic2l0ZV9pZCI6InNpdGUxIiwic2VxIjoyMiwiaXNzdWVkX2F0IjoiMjAyNi0xMS0xOVQwMDowMDowMC4wMDBaIiwiZXhwaXJlc19hdCI6IjIwOTktMDEtMDFUMDA6MDA6MDAuMDAwWiIsIm1vZGUiOiJ0b2tlbiIsIm9yZ3MiOltdLCJyZXZva2VkX2Fzc2V0cyI6W10sImtleXMiOltdfQ",
+   "sig": "de7b0b3ae8da61f7924f07ea63c1ca3a35675f25fd8e78c7442d77fa5f068d880bc27706f13c11ed7311f0657d3c4243f1af3d5b51b6ae45d3eef14c11190093"
+  },
+  "token_v8_turned_off": {
+   "v": 1,
+   "typ": "tokenlock.policy-bundle",
+   "alg": "BIP340",
+   "kid": "k1",
+   "payload": "eyJ2IjoxLCJ0eXAiOiJ0b2tlbmxvY2sucG9saWN5Iiwic2l0ZV9pZCI6InNpdGUxIiwic2VxIjozMCwic3RhdGVfdmVyc2lvbiI6OCwiaXNzdWVkX2F0IjoiMjAyNi0xMS0xOVQwMDowMDowMC4wMDBaIiwiZXhwaXJlc19hdCI6IjIwOTktMDEtMDFUMDA6MDA6MDAuMDAwWiIsIm1vZGUiOiJ0b2tlbiIsIm9yZ3MiOltdLCJyZXZva2VkX2Fzc2V0cyI6W10sImtleXMiOltdfQ",
+   "sig": "0865dabeea6a0185ffbf7dd877315bd42ae5a38ea00538b63dc822fb5a57bf9b4f1b7f84a29cae5de053f261d3a46a6cdbfad23323aa99ca5fececedaaaf3b6d"
+  },
+  "registered_v9_back_on": {
+   "v": 1,
+   "typ": "tokenlock.policy-bundle",
+   "alg": "BIP340",
+   "kid": "k1",
+   "payload": "eyJ2IjoxLCJ0eXAiOiJ0b2tlbmxvY2sucG9saWN5Iiwic2l0ZV9pZCI6InNpdGUxIiwic2VxIjo0MCwic3RhdGVfdmVyc2lvbiI6OSwiaXNzdWVkX2F0IjoiMjAyNi0xMS0xOVQwMDowMDowMC4wMDBaIiwiZXhwaXJlc19hdCI6IjIwOTktMDEtMDFUMDA6MDA6MDAuMDAwWiIsIm1vZGUiOiJyZWdpc3RlcmVkX2tleXMiLCJvcmdzIjpbXSwicmV2b2tlZF9hc3NldHMiOltdLCJrZXlzIjpbeyJpZCI6ImtleV9hIiwiYWRkcmVzcyI6ImJjMXFhZ2VudGFkZHJlc3N4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHgiLCJzdGF0dXMiOiJyZXZva2VkIiwib3duZXJfdHlwZSI6ImFnZW50Iiwib3JnX2lkIjpudWxsLCJhc3NldHMiOltdLCJwZXJtaXNzaW9ucyI6eyJyb3V0ZXMiOlsiL21lbWJlcnMvKiJdLCJtZXRob2RzIjpbIkdFVCJdLCJlbnZpcm9ubWVudHMiOlsicHJvZHVjdGlvbiJdfSwiZXhwaXJlc19hdCI6bnVsbCwicGFzc190dGxfcyI6bnVsbH1dfQ",
+   "sig": "cda8b2e8c0815f27fa46f156a861a31dc17402eb7da03e9b7de0277167469fa92858795670a75575d9c89db94baa3e024e9282b18efbc852956b20edc971158f"
+  }
+ }
+}

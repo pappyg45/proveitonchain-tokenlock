@@ -16,7 +16,7 @@ foreach ($M['cases'] as $c) {
     }
     $opts = array('pass_secret' => $SECRET, 'now' => $NOW) + ($c['resource'] === null ? array('identity_only' => true) : array('resource' => $c['resource'])); // 0.4.3: identity-only is explicit
     if ($c['policy'] === 'registered_keys') {
-        $opts['policy'] = tokenlock_sv_local_policy(array('keys' => array(array('id' => 'key_1', 'address' => $ADDR, 'status' => isset($c['key']) && $c['key'] === 'revoked' ? 'revoked' : 'active', 'permissions' => array('routes' => $M['key']['routes'], 'methods' => $M['key']['methods'])))));
+        $opts['policy'] = tokenlock_sv_local_policy(array('keys' => array(array('id' => 'key_1', 'address' => $ADDR, 'status' => isset($c['key']) && $c['key'] === 'revoked' ? 'revoked' : 'active', 'permissions' => array('routes' => $M['key']['routes'], 'methods' => $M['key']['methods'], 'environments' => $M['key']['environments'])))));
     } elseif ($c['policy'] === 'token') {
         $opts['policy'] = tokenlock_sv_local_policy(array('mode' => 'token'));
     }

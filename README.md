@@ -22,9 +22,51 @@ NEXT_PUBLIC_TOKENLOCK_SITE_KEY=pk_…
 TOKENLOCK_SECRET_KEY=sk_…
 ```
 
+## Upgrading to 0.5.0 (security release, behavior changes)
+
+Current release: **0.5.0**. It is the security release prepared as 0.4.5 (never published as 0.4.5) plus fixes from
+later reviews. It is a minor version because it **denies sign-ins and passes that 0.4.4 accepted** and adds options
+(`site`, owned-name checks). If you use `anyName` (any name on Bitcoin): numeric assets (`A…`), subassets and a balance
+of a name the wallet does not own are now refused (`bad_name` / `not_holder`); `site` options and challenges that are
+not an `http(s)` origin answer `bad_site`, and a pass for another site `wrong_site`. On the hosted service, an
+entitlement revocation on a token-mode site now denies sign-in and verify (`entitlement_revoked`). See the CHANGELOG.
+Projects on `^0.4.x` do not pick up 0.5.0 automatically: change the dependency to `^0.5.0`.
+
+**Upgrade from 0.4.4.** An external review found
+that a registered key with missing permissions was treated as a wildcard:
+
+| Registered key's `permissions` | 0.4.4 | 0.5.0 |
+| --- | --- | --- |
+| missing, `null`, `{}`, `{ routes: null, methods: null }`, or `routes` / `methods` missing or `null` | read as `routes: ['*']`, `methods: ['*']`: every route and method allowed | `policy_invalid` for that key (any request with a resource) |
+| `routes` / `methods` not a list of strings | `policy_invalid` (hosted: `access_data_invalid`) | `policy_invalid` everywhere |
+| `routes: []` or `methods: []` | nothing granted | unchanged |
+| explicit `['*']` | wildcard | unchanged (the only wildcard) |
+
+This applies to self-verify `evaluate()` / `verifyLocalPass()`, the PHP drop-in and the hosted access check. Give every
+registered key explicit `routes`, `methods` and `environments`. Identity-only checks are unchanged.
+
+**Authorization contract 1.1** ([AUTHORIZATION-CONTRACT.md](AUTHORIZATION-CONTRACT.md); upgrade checklist [UPGRADE-0.4.5.md](UPGRADE-0.4.5.md)) is the one rule for Node, PHP, the
+Cloudflare Worker and the hosted API, with shared test vectors (`docs/authorization-vectors-v1.json`). Also in 0.5.0:
+
+| Key / request | 0.4.5 RC1 and earlier | 0.5.0 |
+|---|---|---|
+| `environments` missing or `null` | any environment | `policy_invalid` for that key (any request with a resource) |
+| `environments: ['production']`, request without an environment | allowed | `environment_not_allowed` (set `environment` in your guard / drop-in / worker config) |
+| route `'/api/'` (trailing slash) | prefix (`/api/*`) | exact (`/api`); write `'/api/*'` for a prefix |
+| `environments: []` | any environment | no environment (`environment_not_allowed`); write `['*']` for any |
+| hosted: approving a revoked key | reactivated with its previous grants | `400` unless `routes`, `methods`, `environments` and `expires_at` are sent |
+| hosted: a change not stored in every durable store | `200` | `503 not_durable` (in effect now; repeat until `200`) |
+| `permissions` with an unknown field (e.g. `route`) | field ignored | `policy_invalid` for that key; hosted write `400 bad_permissions` |
+| hosted: restoring an older backup after a revocation | could restore the revoked key | the key is revoked again or held |
+| hosted `/api/v1/gate/verify` with path / method / environment and no secret key | answered | `secret_key_required` (the SDK always sends the key) |
+| hosted admin API: key created / approved without routes, methods or environments | stored `'*'` | `400 permissions_required`; `'*'` only when sent |
+
+The enterprise example's `checkPass(pass, { path, method })` now works without an `environment`. The starter
+projects depend on `^0.5.0`.
+
 ## Upgrading to 0.4.4 (security correction)
 
-Current release: **0.4.4**, a security correction with no new features. **0.4.3 is deprecated: upgrade.** An external
+0.4.4 was a security correction with no new features (superseded by 0.5.0). **0.4.3 is deprecated: upgrade.** An external
 review and a widened audit (every exported function fuzzed) found validation that only ran on some paths:
 
 | You call | 0.4.3 | 0.4.4 |
@@ -82,7 +124,9 @@ wrong types or missing fields, and contradictory answers (`valid: true` together
 echoes naming different resources; an identity answer naming a resource). Self-verify rejects malformed policies
 (`policy_invalid`) and holdings answers whose `held` is not a boolean. The Cloudflare worker has a fail-closed fetch
 timeout (`TOKENLOCK_TIMEOUT_MS`, default 8000): a slow or hung API is answered `503`. On the hosted side, a storage
-error reading a site's settings is an outage (`503`), never a token-only answer.
+error reading a site's settings is an outage (`503`), never a token-only answer. (0.5.0: a site that has never had
+access settings, so its site record carries no access-state flag, is answered on its token rules alone while the access
+store is down; see the CHANGELOG, RC8.)
 
 What to do: remove `failOpen`, `checkResource` and `strict: false` from your configuration (and the Cloudflare
 variables above). Nothing else changes for a correct configuration.
@@ -107,7 +151,7 @@ What to do:
 - **Your own calls with a resource** on a token-only site: drop the resource and pass `identityOnly: true` (an explicit identity-only check; since 0.4.3 leaving both out throws `bad_resource`), or turn on registered
   keys and grant the routes. Treat `policy_required` as a configuration error (the middleware answers 403).
 - **Self-verify**: pass a registered-keys `policy` whenever you pass a `resource`; use identity-only checks otherwise.
-- **PHP drop-in**: upgrade to PHP 0.4.0 or later (current 0.4.4) and set `'token_only' => true` (or `TOKENLOCK_TOKEN_ONLY=1`) on token-only sites.
+- **PHP drop-in**: upgrade to PHP 0.4.0 or later (current 0.5.0) and set `'token_only' => true` (or `TOKENLOCK_TOKEN_ONLY=1`) on token-only sites.
 - **Cloudflare worker example**: set `TOKENLOCK_TOKEN_ONLY = "1"` on token-only sites.
 
 The hosted API answers `policy_required` to every client version, SDK and PHP 0.2.x/0.3.x included (since 18 Nov 2026,
@@ -362,7 +406,7 @@ Paths are matched in canonical form, case-insensitively: query and fragment drop
 
 What our tests do and don't show: the adapter tests (`npm test`, and `test/integration/` with real Express 4 and 5 apps, a Next.js app with middleware, the PHP built-in server with a router, and the Cloudflare worker in Miniflare) check that every alternate URL form is refused or decided on the route the app actually serves. They run against a local copy of the API. They don't establish the security of the hosted verification service or isolation between tenants; an independent security review is on the roadmap.
 
-Next.js: keep `config.matcher` broad (the quickstart above, or leave it out). Next's own matcher is case-sensitive, so `matcher: ['/members/:path*']` or `['/admin/:path*']` would never run the middleware for `/MEMBERS` or `/ADMIN`. TOKENLOCK's `protect` option is what decides which application paths are locked.
+Next.js: keep `config.matcher` broad (the quickstart above, or leave it out). Next's own matcher is case-sensitive, so `matcher: ['/members/:path*']` or `['/admin/:path*']` would never run the middleware for `/MEMBERS` or `/ADMIN`. TOKENLOCK's `protect` option is what decides which application paths are locked. Write `protect` / `publicPaths` patterns the way Next routes them: without the `basePath` and without the i18n locale prefix (`'/members/:path*'` also locks `/fr/members` and `/docs/members`). Since 0.5.0 the middleware matches both the app path and the full path, so a pattern that includes the prefix still locks; `publicPaths` are judged on the app path.
 
 ### Strict mode (default)
 
@@ -419,8 +463,12 @@ const c = await createChallenge({ site: 'https://shop.example', assets: ['CLUBTO
 // … the wallet signs c.message …
 const r = await verifySignIn({ challenge_id: c.challenge_id, address, signature }, cfg);
 if (r.valid) setCookie('tl_pass', r.pass);                              // HttpOnly, Secure
-const v = await verifyLocalPass(cookie, { passSecret: process.env.MY_PASS_SECRET, identityOnly: true });
+const v = await verifyLocalPass(cookie, { passSecret: process.env.MY_PASS_SECRET, identityOnly: true, site: 'https://shop.example' });
 ```
+
+`site` (0.5.0, optional) refuses a pass issued for another site (`wrong_site`). Use one `passSecret` per site.
+With `anyName: true`, the visitor must **own** a registered name (4–12 letters A–Z, not starting with A), as on hosted
+sign-in: numeric assets and a balance of someone else's name are refused.
 
 ### Enterprise self-verify (registered keys, path, method, environment)
 

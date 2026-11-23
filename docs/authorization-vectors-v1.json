@@ -1,0 +1,9471 @@
+{
+ "contract": "tokenlock-authorization",
+ "contract_version": "1.2.0",
+ "sdk_version": "0.5.0",
+ "now": "2026-11-19T12:00:00.000Z",
+ "how_to_run": "PHP: a vector with php_resource passes that value as the request argument (the PHP-native form of the same request). Self-verify (Node/PHP): policy = { v:1, typ:\"tokenlock.policy\", site_id:\"site_vectors\", seq:1, issued_at: now-60s, expires_at: now+3600s, mode:\"registered_keys\", settings: state.settings, orgs: state.orgs, revoked_assets: state.revoked_assets, keys:[key] }; evaluate(policy, { address, held, ...request, now }). Hosted: evaluate({ state, key: key.address === address ? key : null, held, ...request, now }). Token mode (contract 1.2.0): a vector with policy_mode \"token\" uses mode:\"token\" in the self-verify policy, and hosted evaluateToken({ state, held, ...request, now }) (the rule hosted verify and sign-in apply to token-mode sites from 0.5.0). Cloudflare worker: strictCheck(hosted answer, request.resource). A decision is equivalent when allowed matches; reason must equal expect.reason, or expect.platform_reason[platform] where listed.",
+ "vectors": [
+  {
+   "id": "G01",
+   "title": "explicit route + method grant",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": true,
+    "reason": "ok"
+   }
+  },
+  {
+   "id": "G02",
+   "title": "route outside the grant",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/admin",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "route_not_allowed"
+   }
+  },
+  {
+   "id": "G03",
+   "title": "method outside the grant",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "DELETE"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "method_not_allowed"
+   }
+  },
+  {
+   "id": "G04",
+   "title": "explicit \"*\" routes and methods",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/private/admin",
+     "method": "DELETE"
+    }
+   },
+   "expect": {
+    "allowed": true,
+    "reason": "ok"
+   }
+  },
+  {
+   "id": "G05",
+   "title": "explicit \"/*\" route is a wildcard",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/anything/deep",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": true,
+    "reason": "ok"
+   }
+  },
+  {
+   "id": "G06",
+   "title": "routes [] grants nothing",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "route_not_allowed"
+   }
+  },
+  {
+   "id": "G07",
+   "title": "methods [] grants nothing",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "method_not_allowed"
+   }
+  },
+  {
+   "id": "G08",
+   "title": "prefix \"/api/*\" also covers \"/api\" itself",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": true,
+    "reason": "ok"
+   }
+  },
+  {
+   "id": "G09",
+   "title": "prefix \"/api/*\" does not cover \"/apix\"",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/apix",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "route_not_allowed"
+   }
+  },
+  {
+   "id": "G10",
+   "title": "trailing slash \"/api/\" is an exact route, not a prefix (RC2)",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "route_not_allowed"
+   },
+   "changed_in": "0.4.5-rc2"
+  },
+  {
+   "id": "G11",
+   "title": "trailing slash \"/api/\" matches \"/api\"",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": true,
+    "reason": "ok"
+   }
+  },
+  {
+   "id": "G12",
+   "title": "paths are case-insensitive (one identity)",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/API/Reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": true,
+    "reason": "ok"
+   }
+  },
+  {
+   "id": "G13",
+   "title": "request method case is normalized",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "get"
+    }
+   },
+   "expect": {
+    "allowed": true,
+    "reason": "ok"
+   }
+  },
+  {
+   "id": "G14",
+   "title": "a lowercase method in the key never matches (no normalization of grants)",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "get"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "method_not_allowed"
+   }
+  },
+  {
+   "id": "G15",
+   "title": "\"/api*\" is not a glob",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "route_not_allowed"
+   }
+  },
+  {
+   "id": "G16",
+   "title": "exact route",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/reports"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": true,
+    "reason": "ok"
+   }
+  },
+  {
+   "id": "G17",
+   "title": "exact route does not cover children",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/reports"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports/q3",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "route_not_allowed"
+   }
+  },
+  {
+   "id": "G18",
+   "title": "methods [\"*\"] with a narrow route",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/x",
+     "method": "DELETE"
+    }
+   },
+   "expect": {
+    "allowed": true,
+    "reason": "ok"
+   }
+  },
+  {
+   "id": "G19",
+   "title": "route \"\" grants nothing",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      ""
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "route_not_allowed"
+   }
+  },
+  {
+   "id": "G20",
+   "title": "route without a leading slash grants nothing",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "route_not_allowed"
+   }
+  },
+  {
+   "id": "M01",
+   "title": "no permissions field",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "policy_invalid"
+   }
+  },
+  {
+   "id": "M02",
+   "title": "permissions null",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": null
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "policy_invalid"
+   }
+  },
+  {
+   "id": "M03",
+   "title": "permissions {}",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {}
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "policy_invalid"
+   }
+  },
+  {
+   "id": "M04",
+   "title": "routes missing",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "policy_invalid"
+   }
+  },
+  {
+   "id": "M05",
+   "title": "methods missing",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "policy_invalid"
+   }
+  },
+  {
+   "id": "M06",
+   "title": "environments missing (RC2)",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/*"
+     ],
+     "methods": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "policy_invalid"
+   },
+   "changed_in": "0.4.5-rc2"
+  },
+  {
+   "id": "M07",
+   "title": "routes null",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": null,
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "policy_invalid"
+   }
+  },
+  {
+   "id": "M08",
+   "title": "methods null",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/*"
+     ],
+     "methods": null,
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "policy_invalid"
+   }
+  },
+  {
+   "id": "M09",
+   "title": "environments null (RC2)",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": null
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "policy_invalid"
+   },
+   "changed_in": "0.4.5-rc2"
+  },
+  {
+   "id": "M10",
+   "title": "routes and methods null",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": null,
+     "methods": null,
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "policy_invalid"
+   }
+  },
+  {
+   "id": "M11",
+   "title": "routes \"*\" (string)",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": "*",
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/private/admin",
+     "method": "DELETE"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "policy_invalid"
+   }
+  },
+  {
+   "id": "M12",
+   "title": "methods \"GET\" (string)",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/*"
+     ],
+     "methods": "GET",
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/private/admin",
+     "method": "DELETE"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "policy_invalid"
+   }
+  },
+  {
+   "id": "M13",
+   "title": "environments \"production\" (string)",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": "production"
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/private/admin",
+     "method": "DELETE"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "policy_invalid"
+   }
+  },
+  {
+   "id": "M14",
+   "title": "routes [5]",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      5
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/private/admin",
+     "method": "DELETE"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "policy_invalid"
+   }
+  },
+  {
+   "id": "M15",
+   "title": "routes [null]",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      null
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/private/admin",
+     "method": "DELETE"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "policy_invalid"
+   }
+  },
+  {
+   "id": "M16",
+   "title": "routes {} (object)",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": {},
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/private/admin",
+     "method": "DELETE"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "policy_invalid",
+    "platform_reason": {
+     "php": "route_not_allowed"
+    }
+   }
+  },
+  {
+   "id": "M17",
+   "title": "permissions [] (array)",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": []
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/private/admin",
+     "method": "DELETE"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "policy_invalid"
+   }
+  },
+  {
+   "id": "M18",
+   "title": "permissions \"all\" (string)",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": "all"
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/private/admin",
+     "method": "DELETE"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "policy_invalid"
+   }
+  },
+  {
+   "id": "M19",
+   "title": "permissions true",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": true
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/private/admin",
+     "method": "DELETE"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "policy_invalid"
+   }
+  },
+  {
+   "id": "M20",
+   "title": "environments [5]",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      5
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/private/admin",
+     "method": "DELETE"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "policy_invalid"
+   }
+  },
+  {
+   "id": "E01",
+   "title": "restricted key, matching environment",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "production"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET",
+     "environment": "production"
+    }
+   },
+   "expect": {
+    "allowed": true,
+    "reason": "ok"
+   }
+  },
+  {
+   "id": "E02",
+   "title": "restricted key, request has no environment (RC2)",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "production"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "environment_not_allowed"
+   },
+   "changed_in": "0.4.5-rc2"
+  },
+  {
+   "id": "E03",
+   "title": "restricted key, other environment",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "production"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET",
+     "environment": "staging"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "environment_not_allowed"
+   }
+  },
+  {
+   "id": "E04",
+   "title": "environment names are case-sensitive",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "production"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET",
+     "environment": "Production"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "environment_not_allowed"
+   }
+  },
+  {
+   "id": "E05",
+   "title": "explicit \"*\" environments, request has none",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": true,
+    "reason": "ok"
+   }
+  },
+  {
+   "id": "E06",
+   "title": "explicit \"*\" environments, any environment",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET",
+     "environment": "anything"
+    }
+   },
+   "expect": {
+    "allowed": true,
+    "reason": "ok"
+   }
+  },
+  {
+   "id": "E07",
+   "title": "environments [] grants no environment (RC3; RC2 and earlier read [] as \"any\")",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": []
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "environment_not_allowed"
+   },
+   "changed_in": "0.4.5-rc3"
+  },
+  {
+   "id": "E08",
+   "title": "environments [] with a request environment grants nothing (RC3)",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": []
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET",
+     "environment": "staging"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "environment_not_allowed"
+   },
+   "changed_in": "0.4.5-rc3"
+  },
+  {
+   "id": "E09",
+   "title": "\"*\" inside a list",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "production",
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET",
+     "environment": "qa"
+    }
+   },
+   "expect": {
+    "allowed": true,
+    "reason": "ok"
+   }
+  },
+  {
+   "id": "E10",
+   "title": "second listed environment",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "production",
+      "staging"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET",
+     "environment": "staging"
+    }
+   },
+   "expect": {
+    "allowed": true,
+    "reason": "ok"
+   }
+  },
+  {
+   "id": "E11",
+   "title": "multi-environment key, request has none (RC2)",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "production",
+      "staging"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "environment_not_allowed"
+   },
+   "changed_in": "0.4.5-rc2"
+  },
+  {
+   "id": "E12",
+   "title": "request environment \"\" (empty)",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "production"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET",
+     "environment": ""
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   }
+  },
+  {
+   "id": "E13",
+   "title": "request environment null",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "production"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET",
+     "environment": null
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   }
+  },
+  {
+   "id": "E14",
+   "title": "request environment 5",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "production"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET",
+     "environment": 5
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   }
+  },
+  {
+   "id": "E15",
+   "title": "request environment with a space",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "production"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET",
+     "environment": "prod uction"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   }
+  },
+  {
+   "id": "E16",
+   "title": "request environment 31 characters",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "production"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET",
+     "environment": "ppppppppppppppppppppppppppppppp"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   }
+  },
+  {
+   "id": "E17",
+   "title": "request environment padded",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "production"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET",
+     "environment": " production"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   }
+  },
+  {
+   "id": "E18",
+   "title": "identity-only does not read environments",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "production"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "identityOnly": true
+   },
+   "expect": {
+    "allowed": true,
+    "reason": "ok"
+   }
+  },
+  {
+   "id": "E19",
+   "title": "restricted key, request environment matches but route does not",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "production"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/admin",
+     "method": "GET",
+     "environment": "production"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "route_not_allowed"
+   }
+  },
+  {
+   "id": "K01",
+   "title": "key revoked",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "revoked",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "key_revoked"
+   }
+  },
+  {
+   "id": "K02",
+   "title": "key pending approval",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "pending_approval",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "pending_approval"
+   }
+  },
+  {
+   "id": "K03",
+   "title": "unknown key status",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "disabled",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "policy_invalid",
+    "platform_reason": {
+     "hosted": "access_data_invalid"
+    }
+   }
+  },
+  {
+   "id": "K04",
+   "title": "key status missing",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "policy_invalid",
+    "platform_reason": {
+     "hosted": "access_data_invalid"
+    }
+   }
+  },
+  {
+   "id": "K05",
+   "title": "key expired",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": "2026-11-19T11:59:59.000Z",
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "key_expired"
+   }
+  },
+  {
+   "id": "K06",
+   "title": "key expires later",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": "2026-11-19T13:00:00.000Z",
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": true,
+    "reason": "ok"
+   }
+  },
+  {
+   "id": "K07",
+   "title": "key expires_at unparseable",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": "tomorrow",
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "policy_invalid",
+    "platform_reason": {
+     "hosted": "key_expired"
+    }
+   }
+  },
+  {
+   "id": "K08",
+   "title": "key organization suspended",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": "org_sus",
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "org_not_approved"
+   }
+  },
+  {
+   "id": "K09",
+   "title": "key organization unknown",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": "org_missing",
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "org_not_approved"
+   }
+  },
+  {
+   "id": "K10",
+   "title": "organization approved",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": "org_ok",
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": true,
+    "reason": "ok"
+   }
+  },
+  {
+   "id": "K11",
+   "title": "require_org, key has no organization",
+   "state": {
+    "settings": {
+     "require_org": true
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "org_required"
+   }
+  },
+  {
+   "id": "K12",
+   "title": "key assets exclude the held token",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [
+     "OTHERTOKEN"
+    ],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "entitlement_revoked"
+   }
+  },
+  {
+   "id": "K13",
+   "title": "key assets include the held token",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [
+     "GOODTOKEN"
+    ],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": true,
+    "reason": "ok"
+   }
+  },
+  {
+   "id": "K14",
+   "title": "held token revoked site-wide",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "REVOKEDTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "entitlement_revoked"
+   }
+  },
+  {
+   "id": "K15",
+   "title": "holds nothing",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "not_holder"
+   }
+  },
+  {
+   "id": "K16",
+   "title": "wallet is not a registered key",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qnotregistered0000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "not_registered"
+   }
+  },
+  {
+   "id": "K17",
+   "title": "key assets \"GOODTOKEN\" (string)",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": "GOODTOKEN",
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "policy_invalid",
+    "platform_reason": {
+     "hosted": "access_data_invalid"
+    }
+   }
+  },
+  {
+   "id": "K18",
+   "title": "revoked key with wildcard grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "revoked",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "key_revoked"
+   }
+  },
+  {
+   "id": "K19",
+   "title": "identity-only for a key without permissions",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "identityOnly": true
+   },
+   "expect": {
+    "allowed": true,
+    "reason": "ok"
+   }
+  },
+  {
+   "id": "K20",
+   "title": "identity-only for a revoked key",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "revoked",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "identityOnly": true
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "key_revoked"
+   }
+  },
+  {
+   "id": "L01",
+   "title": "recovery hold (serialized pending_approval) with historical wildcard grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "pending_approval",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/private/admin",
+     "method": "DELETE"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "pending_approval"
+   },
+   "changed_in": "0.4.5-rc3"
+  },
+  {
+   "id": "L02",
+   "title": "recovery hold, identity-only",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "pending_approval",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "identityOnly": true
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "pending_approval"
+   },
+   "changed_in": "0.4.5-rc3"
+  },
+  {
+   "id": "L03",
+   "title": "reactivated key, request inside the newly confirmed grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/read"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "production"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/read",
+     "method": "GET",
+     "environment": "production"
+    }
+   },
+   "expect": {
+    "allowed": true,
+    "reason": "ok"
+   },
+   "changed_in": "0.4.5-rc3"
+  },
+  {
+   "id": "L04",
+   "title": "reactivated key, request only the historical grant allowed",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/read"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "production"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET",
+     "environment": "production"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "route_not_allowed"
+   },
+   "changed_in": "0.4.5-rc3"
+  },
+  {
+   "id": "L05",
+   "title": "reactivated key with a confirmed expiry already past",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": "2026-11-19T11:00:00.000Z",
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "key_expired"
+   },
+   "changed_in": "0.4.5-rc3"
+  },
+  {
+   "id": "F01",
+   "title": "unknown permission field beside full grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ],
+     "deny_routes": [
+      "/private/*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/private/admin",
+     "method": "DELETE"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "policy_invalid"
+   },
+   "changed_in": "0.4.5-rc3"
+  },
+  {
+   "id": "F02",
+   "title": "misspelled permission field (\"route\") beside routes",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ],
+     "route": [
+      "/api/*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/private/admin",
+     "method": "DELETE"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "policy_invalid"
+   },
+   "changed_in": "0.4.5-rc3"
+  },
+  {
+   "id": "F03",
+   "title": "unknown permission field with null value",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ],
+     "max_requests": null
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/private/admin",
+     "method": "DELETE"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "policy_invalid"
+   },
+   "changed_in": "0.4.5-rc3"
+  },
+  {
+   "id": "F04",
+   "title": "unknown permission field, otherwise narrow grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ],
+     "scope": "read"
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "policy_invalid"
+   },
+   "changed_in": "0.4.5-rc3"
+  },
+  {
+   "id": "F05",
+   "title": "methods [5]",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/*"
+     ],
+     "methods": [
+      5
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/private/admin",
+     "method": "DELETE"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "policy_invalid"
+   }
+  },
+  {
+   "id": "F06",
+   "title": "methods {} (object)",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/*"
+     ],
+     "methods": {},
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/private/admin",
+     "method": "DELETE"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "policy_invalid",
+    "platform_reason": {
+     "php": "method_not_allowed"
+    }
+   }
+  },
+  {
+   "id": "F07",
+   "title": "environments {} (object)",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": {}
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/private/admin",
+     "method": "DELETE"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "policy_invalid",
+    "platform_reason": {
+     "php": "environment_not_allowed"
+    }
+   }
+  },
+  {
+   "id": "F08",
+   "title": "environments [\"\"]",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      ""
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET",
+     "environment": "production"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "environment_not_allowed"
+   }
+  },
+  {
+   "id": "F09",
+   "title": "assets omitted (no asset restriction)",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": true,
+    "reason": "ok"
+   }
+  },
+  {
+   "id": "F10",
+   "title": "assets null (no asset restriction)",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": null,
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": true,
+    "reason": "ok"
+   }
+  },
+  {
+   "id": "F11",
+   "title": "assets [5]",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [
+     5
+    ],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "policy_invalid",
+    "platform_reason": {
+     "hosted": "access_data_invalid"
+    }
+   }
+  },
+  {
+   "id": "F12",
+   "title": "org_id omitted",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": true,
+    "reason": "ok"
+   }
+  },
+  {
+   "id": "F13",
+   "title": "expires_at omitted",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": true,
+    "reason": "ok"
+   }
+  },
+  {
+   "id": "F14",
+   "title": "expires_at 99999 (number)",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": 99999,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "policy_invalid",
+    "platform_reason": {
+     "hosted": "key_expired"
+    }
+   }
+  },
+  {
+   "id": "F15",
+   "title": "expires_at true",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": true,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "policy_invalid",
+    "platform_reason": {
+     "hosted": "key_expired"
+    }
+   }
+  },
+  {
+   "id": "F16",
+   "title": "unknown top-level key field is metadata",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    },
+    "note": "imported"
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": true,
+    "reason": "ok"
+   }
+  },
+  {
+   "id": "F17",
+   "title": "key status \"Active\" (case)",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "Active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "policy_invalid",
+    "platform_reason": {
+     "hosted": "access_data_invalid"
+    }
+   }
+  },
+  {
+   "id": "R01",
+   "title": "resource without method",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   }
+  },
+  {
+   "id": "R02",
+   "title": "resource without path",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   }
+  },
+  {
+   "id": "R03",
+   "title": "unknown resource field",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET",
+     "pth": "/x"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   }
+  },
+  {
+   "id": "R04",
+   "title": "relative path",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_path"
+   }
+  },
+  {
+   "id": "R05",
+   "title": "traversal",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/../admin",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_path"
+   }
+  },
+  {
+   "id": "R06",
+   "title": "encoded traversal",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/%2e%2e/admin",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_path"
+   }
+  },
+  {
+   "id": "R07",
+   "title": "identity-only combined with a resource",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "identityOnly": true,
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   }
+  },
+  {
+   "id": "R08",
+   "title": "no resource and no identity-only",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {},
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   }
+  },
+  {
+   "id": "R09",
+   "title": "method with digits",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "G3T"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   }
+  },
+  {
+   "id": "R10",
+   "title": "path array",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": [
+      "/api/reports"
+     ],
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   }
+  },
+  {
+   "id": "I01",
+   "title": "nested identityOnly: true, key with empty grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [],
+     "methods": [],
+     "environments": []
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "identityOnly": true
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I02",
+   "title": "nested identityOnly: true, key with normal grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "identityOnly": true
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I03",
+   "title": "nested identity_only: true, key with empty grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [],
+     "methods": [],
+     "environments": []
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "identity_only": true
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4",
+   "php_resource": {
+    "resource": {
+     "identity_only": true
+    }
+   },
+   "php_note": "Node resource { identity_only: true } is PHP's own selector; PHP-native nested form used"
+  },
+  {
+   "id": "I04",
+   "title": "nested identity_only: true, key with normal grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "identity_only": true
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4",
+   "php_resource": {
+    "resource": {
+     "identity_only": true
+    }
+   },
+   "php_note": "Node resource { identity_only: true } is PHP's own selector; PHP-native nested form used"
+  },
+  {
+   "id": "I05",
+   "title": "nested identityOnly: \"true\", key with empty grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [],
+     "methods": [],
+     "environments": []
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "identityOnly": "true"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I06",
+   "title": "nested identityOnly: \"true\", key with normal grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "identityOnly": "true"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I07",
+   "title": "nested identityOnly: 1, key with empty grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [],
+     "methods": [],
+     "environments": []
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "identityOnly": 1
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I08",
+   "title": "nested identityOnly: 1, key with normal grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "identityOnly": 1
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I09",
+   "title": "top-level identityOnly: \"true\", key with empty grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [],
+     "methods": [],
+     "environments": []
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "identityOnly": "true"
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I10",
+   "title": "top-level identityOnly: \"true\", key with normal grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "identityOnly": "true"
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I11",
+   "title": "top-level identityOnly: 1, key with empty grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [],
+     "methods": [],
+     "environments": []
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "identityOnly": 1
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I12",
+   "title": "top-level identityOnly: 1, key with normal grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "identityOnly": 1
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I13",
+   "title": "top-level identityOnly: false, key with empty grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [],
+     "methods": [],
+     "environments": []
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "identityOnly": false
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I14",
+   "title": "top-level identityOnly: false, key with normal grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "identityOnly": false
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I15",
+   "title": "top-level identity_only: true (snake case), key with empty grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [],
+     "methods": [],
+     "environments": []
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "identity_only": true
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4",
+   "php_resource": {
+    "identityOnly": true
+   },
+   "php_note": "snake case is PHP's own top-level selector; the wrong-case PHP form (camelCase) is used"
+  },
+  {
+   "id": "I16",
+   "title": "top-level identity_only: true (snake case), key with normal grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "identity_only": true
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4",
+   "php_resource": {
+    "identityOnly": true
+   },
+   "php_note": "snake case is PHP's own top-level selector; the wrong-case PHP form (camelCase) is used"
+  },
+  {
+   "id": "I17",
+   "title": "identityOnly nested two levels, key with empty grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [],
+     "methods": [],
+     "environments": []
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "resource": {
+      "identityOnly": true
+     }
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I18",
+   "title": "identityOnly nested two levels, key with normal grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "resource": {
+      "identityOnly": true
+     }
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I19",
+   "title": "identityOnly nested inside path, key with empty grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [],
+     "methods": [],
+     "environments": []
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": {
+      "identityOnly": true
+     },
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I20",
+   "title": "identityOnly nested inside path, key with normal grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": {
+      "identityOnly": true
+     },
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I21",
+   "title": "identityOnly nested inside a list, key with empty grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [],
+     "methods": [],
+     "environments": []
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": [
+     {
+      "identityOnly": true
+     }
+    ]
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I22",
+   "title": "identityOnly nested inside a list, key with normal grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": [
+     {
+      "identityOnly": true
+     }
+    ]
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I23",
+   "title": "nested identityOnly with path and method, key with empty grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [],
+     "methods": [],
+     "environments": []
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "identityOnly": true,
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I24",
+   "title": "nested identityOnly with path and method, key with normal grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "identityOnly": true,
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I25",
+   "title": "nested identityOnly with an unknown resource key, key with empty grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [],
+     "methods": [],
+     "environments": []
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "identityOnly": true,
+     "extra": 1
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I26",
+   "title": "nested identityOnly with an unknown resource key, key with normal grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "identityOnly": true,
+     "extra": 1
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I27",
+   "title": "resource null, key with empty grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [],
+     "methods": [],
+     "environments": []
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": null
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I28",
+   "title": "resource null, key with normal grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": null
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I29",
+   "title": "resource {}, key with empty grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [],
+     "methods": [],
+     "environments": []
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {}
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I30",
+   "title": "resource {}, key with normal grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {}
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I31",
+   "title": "resource [], key with empty grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [],
+     "methods": [],
+     "environments": []
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": []
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I32",
+   "title": "resource [], key with normal grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": []
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I33",
+   "title": "resource string, key with empty grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [],
+     "methods": [],
+     "environments": []
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": "identityOnly"
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I34",
+   "title": "resource string, key with normal grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": "identityOnly"
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I35",
+   "title": "resource number, key with empty grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [],
+     "methods": [],
+     "environments": []
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": 1
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I36",
+   "title": "resource number, key with normal grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": 1
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I37",
+   "title": "resource true, key with empty grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [],
+     "methods": [],
+     "environments": []
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": true
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I38",
+   "title": "resource true, key with normal grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": true
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I39",
+   "title": "top-level identityOnly + nested identityOnly resource, key with empty grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [],
+     "methods": [],
+     "environments": []
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "identityOnly": true,
+    "resource": {
+     "identityOnly": true
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I40",
+   "title": "top-level identityOnly + nested identityOnly resource, key with normal grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "identityOnly": true,
+    "resource": {
+     "identityOnly": true
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I41",
+   "title": "top-level identityOnly + resource null, key with empty grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [],
+     "methods": [],
+     "environments": []
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "identityOnly": true,
+    "resource": null
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I42",
+   "title": "top-level identityOnly + resource null, key with normal grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "identityOnly": true,
+    "resource": null
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I43",
+   "title": "top-level identityOnly + resource {}, key with empty grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [],
+     "methods": [],
+     "environments": []
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "identityOnly": true,
+    "resource": {}
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I44",
+   "title": "top-level identityOnly + resource {}, key with normal grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "identityOnly": true,
+    "resource": {}
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I45",
+   "title": "top-level identityOnly + resource [], key with empty grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [],
+     "methods": [],
+     "environments": []
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "identityOnly": true,
+    "resource": []
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I46",
+   "title": "top-level identityOnly + resource [], key with normal grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "identityOnly": true,
+    "resource": []
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I47",
+   "title": "top-level identityOnly + resource string, key with empty grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [],
+     "methods": [],
+     "environments": []
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "identityOnly": true,
+    "resource": "x"
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I48",
+   "title": "top-level identityOnly + resource string, key with normal grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "identityOnly": true,
+    "resource": "x"
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I49",
+   "title": "top-level identityOnly + resource 0, key with empty grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [],
+     "methods": [],
+     "environments": []
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "identityOnly": true,
+    "resource": 0
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I50",
+   "title": "top-level identityOnly + resource 0, key with normal grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "identityOnly": true,
+    "resource": 0
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I51",
+   "title": "top-level identityOnly + unknown option, key with empty grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [],
+     "methods": [],
+     "environments": []
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "identityOnly": true,
+    "extra": 1
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I52",
+   "title": "top-level identityOnly + unknown option, key with normal grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "identityOnly": true,
+    "extra": 1
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "bad_resource"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I53",
+   "title": "control: top-level identityOnly: true, key with empty grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [],
+     "methods": [],
+     "environments": []
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "identityOnly": true
+   },
+   "expect": {
+    "allowed": true,
+    "reason": "ok"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "I54",
+   "title": "control: top-level identityOnly: true, key with normal grants",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "*"
+     ],
+     "methods": [
+      "*"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "identityOnly": true
+   },
+   "expect": {
+    "allowed": true,
+    "reason": "ok"
+   },
+   "changed_in": "0.4.5-rc4"
+  },
+  {
+   "id": "T01",
+   "title": "token mode: holder of an accepted token, identity check",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "identityOnly": true
+   },
+   "expect": {
+    "allowed": true,
+    "reason": "ok"
+   },
+   "policy_mode": "token",
+   "changed_in": "0.5.0-rc7"
+  },
+  {
+   "id": "T02",
+   "title": "token mode: every held token revoked for the site (Q1)",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "REVOKEDTOKEN"
+   ],
+   "request": {
+    "identityOnly": true
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "entitlement_revoked"
+   },
+   "policy_mode": "token",
+   "changed_in": "0.5.0-rc7"
+  },
+  {
+   "id": "T03",
+   "title": "token mode: one held token revoked, another still accepted",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "REVOKEDTOKEN",
+    "GOODTOKEN"
+   ],
+   "request": {
+    "identityOnly": true
+   },
+   "expect": {
+    "allowed": true,
+    "reason": "ok"
+   },
+   "policy_mode": "token",
+   "changed_in": "0.5.0-rc7"
+  },
+  {
+   "id": "T04",
+   "title": "token mode: nothing held",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [],
+   "request": {
+    "identityOnly": true
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "not_holder"
+   },
+   "policy_mode": "token",
+   "changed_in": "0.5.0-rc7"
+  },
+  {
+   "id": "T05",
+   "title": "token mode: a path/method request needs a route policy",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "GOODTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "policy_required"
+   },
+   "policy_mode": "token",
+   "changed_in": "0.5.0-rc7"
+  },
+  {
+   "id": "T06",
+   "title": "token mode: revoked token and a path/method request (the request is checked first)",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "REVOKEDTOKEN"
+   ],
+   "request": {
+    "resource": {
+     "path": "/api/reports",
+     "method": "GET"
+    }
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "policy_required"
+   },
+   "policy_mode": "token",
+   "changed_in": "0.5.0-rc7"
+  },
+  {
+   "id": "T07",
+   "title": "token mode: revoked_assets malformed (a string, not a list)",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": "REVOKEDTOKEN"
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "active",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "REVOKEDTOKEN"
+   ],
+   "request": {
+    "identityOnly": true
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "policy_invalid",
+    "platform_reason": {
+     "hosted": "access_data_invalid"
+    }
+   },
+   "policy_mode": "token",
+   "changed_in": "0.5.0-rc7"
+  },
+  {
+   "id": "T08",
+   "title": "token mode: a key in the record does not matter (keys are ignored)",
+   "state": {
+    "settings": {
+     "require_org": false
+    },
+    "orgs": [
+     {
+      "id": "org_ok",
+      "status": "approved"
+     },
+     {
+      "id": "org_sus",
+      "status": "suspended"
+     }
+    ],
+    "revoked_assets": [
+     "REVOKEDTOKEN"
+    ]
+   },
+   "key": {
+    "id": "key_vector0001",
+    "address": "bc1qvectorkey000000000000000000000000000000",
+    "status": "revoked",
+    "owner_type": "agent",
+    "org_id": null,
+    "assets": [],
+    "expires_at": null,
+    "permissions": {
+     "routes": [
+      "/api/*"
+     ],
+     "methods": [
+      "GET"
+     ],
+     "environments": [
+      "*"
+     ]
+    }
+   },
+   "address": "bc1qvectorkey000000000000000000000000000000",
+   "held": [
+    "REVOKEDTOKEN"
+   ],
+   "request": {
+    "identityOnly": true
+   },
+   "expect": {
+    "allowed": false,
+    "reason": "entitlement_revoked"
+   },
+   "policy_mode": "token",
+   "changed_in": "0.5.0-rc7"
+  }
+ ]
+}

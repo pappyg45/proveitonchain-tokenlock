@@ -1,5 +1,5 @@
 // 0.4.4 security correction. Written BEFORE the fix; it fails against 0.4.3 (local dist and the registry package).
-// Reproduces the external review (Garrett, 19 Nov 2026) exactly, plus the gaps the widened 0.4.4 audit found:
+// Reproduces the external review (19 Nov 2026) exactly, plus the gaps the widened 0.4.4 audit found:
 //  G1  evaluate(): the token-mode branch returned before the resource was validated, so a normal resource, a misspelled
 //      { pth: '/private' } and an array-valued path were all allowed: true.
 //  G2  an explicitly expired localPolicy() (January 2020) still authorized a currently valid local pass.
@@ -31,7 +31,7 @@ const A = 'bc1qreviewer0000000000000000000000000000';
 const future = (ms = 3600e3) => new Date(Date.now() + ms).toISOString();
 const policyBase = (o = {}) => ({ v: 1, typ: 'tokenlock.policy', site_id: 'local', seq: 1, issued_at: new Date(Date.now() - 60e3).toISOString(), expires_at: future(), orgs: [], revoked_assets: [], keys: [], ...o });
 const TOKEN = policyBase({ mode: 'token', assets: ['GOTPROOF'] });
-const KEY = { id: 'k1', address: A, status: 'active', permissions: { routes: ['/*'], methods: ['*'] } };
+const KEY = { id: 'k1', address: A, status: 'active', permissions: { routes: ['/*'], methods: ['*'], environments: ['*'] } };
 const REG = policyBase({ mode: 'registered_keys', keys: [KEY] });
 const pass = (o = {}) => SV.issuePass({ sub: A, h: ['GOTPROOF'], k: null, n: 'n1', s: 'https://shop.example', i: Date.now(), e: Date.now() + 3600e3, ...o }, SECRET);
 const isAllowed = (r) => !!r && (r.allowed === true || r.valid === true);
@@ -167,7 +167,10 @@ test('G3 starters: depend on the current release, tokenOnly: true, members page 
   for (const dir of ['express', 'next-app']) {
     const range = JSON.parse(read(`examples/${dir}/package.json`)).dependencies['@proveitonchain/tokenlock'];
     const m = /^\^(\d+)\.(\d+)\.(\d+)$/.exec(range || '');
-    assert.ok(m && +m[1] === maj && +m[2] === min && +m[3] <= pat && +m[3] >= 4, `${dir}: dependency ${range} must be ^0.4.4 or later within ${VERSION}`);
+    // 0.5.0 RC7 (disclosed U25): "at least 0.4.4" compared as a version, not as patch >= 4 (which only held on 0.4.x);
+    // still the current release line (same major.minor, patch not above the current one).
+    const atLeast044 = m && (+m[1] > 0 || +m[2] > 4 || (+m[2] === 4 && +m[3] >= 4));
+    assert.ok(m && +m[1] === maj && +m[2] === min && +m[3] <= pat && atLeast044, `${dir}: dependency ${range} must be ^0.4.4 or later within ${VERSION}`);
   }
   assert.ok(/tokenOnly:\s*true/.test(read('examples/express/server.js')), 'express starter: tokenOnly: true');
   assert.ok(/tokenOnly:\s*true/.test(read('examples/next-app/middleware.ts')), 'next starter: tokenOnly: true');

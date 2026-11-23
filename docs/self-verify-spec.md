@@ -1,6 +1,6 @@
 # TOKENLOCK self-verify, spec v1
 
-Status: preview (SDK 0.4.4, self-verify since 0.3.0; PHP drop-in 0.4.4; 0.4.2 adds policy validation: malformed policies are `policy_invalid`; 0.4.3 adds the strict request schema: malformed `resource` or unknown options are `bad_resource`, identity-only is explicit; 0.4.4 enforces every policy's validity window wherever it is used and validates `evaluate()` input before any mode branch). Enterprise. Web version: https://proveitonchain.com/docs/self-verify
+Status: preview (SDK 0.5.0, self-verify since 0.3.0; PHP drop-in 0.5.0; 0.4.2 adds policy validation: malformed policies are `policy_invalid`; 0.4.3 adds the strict request schema: malformed `resource` or unknown options are `bad_resource`, identity-only is explicit; 0.4.4 enforces every policy's validity window wherever it is used and validates `evaluate()` input before any mode branch; 0.4.5 requires explicit `routes` and `methods` on every registered key). Enterprise. Web version: https://proveitonchain.com/docs/self-verify
 
 Self-verify lets **your server** run "Sign in with your Token" from start to finish. You issue the challenge and keep
 the nonce. You check the wallet signature locally, and you read holdings from a source you pick. For the sign-in itself,
@@ -38,6 +38,10 @@ Issued: <ISO-8601 UTC, milliseconds>
 Expires: <ISO-8601 UTC, milliseconds>
 Signing proves you control this address. It moves no funds.
 ```
+
+`any name on Bitcoin` (0.5.0, same as hosted): the visitor names a registered name (`^[B-Z][A-Z]{3,11}$` after ASCII
+trim and uppercase) and the holdings source must report that the address OWNS it (`how: "owner"`). Other names answer
+`bad_name`; a balance without ownership answers `not_holder`. Listed assets count with any positive balance.
 
 Lines are joined with `\n` and there is no trailing newline. `Site` is the origin only: scheme, host and a port only if it
 is non-default. `Via: self-verify` keeps a self-verify signature from being replayed against the hosted check, and the other
@@ -82,6 +86,15 @@ policy  = { v:1, typ:"tokenlock.policy", site_id, seq, state_version, issued_at,
             permissions:{routes,methods,environments}, expires_at, pass_ttl_s}] }
 ```
 
+- **Key permissions (0.4.5):** `routes` and `methods` must each be an explicit list of strings. If `permissions` is missing,
+  `null` or not an object, or `routes` / `methods` is missing, `null` or not a list, a request with a resource for that key
+  is `policy_invalid` (0.4.4 read missing or `null` as `['*']`). `[]` grants nothing; `'*'` is a wildcard only when written.
+  `environments` is required the same way (missing or `null`: `policy_invalid`); `['*']` is any environment; `[]` grants no
+  environment (contract 1.1; RC2 read it as any). A list without `'*'` denies a request that names no environment
+  (`environment_not_allowed`). A route with a trailing slash is exact (`'/api/'` = `/api`); only `/*` makes a prefix.
+  `permissions` is a closed object: any other field (e.g. a misspelled `route`) makes the key `policy_invalid` (RC3).
+  Identity-only checks do not read permissions. Normative rule: `AUTHORIZATION-CONTRACT.md` (contract 1.1).
+
 - Get it with `GET /api/v1/tokenlock/access/policy?ttl=60..3600` (default 600) and `Authorization: Bearer sk_…`.
   It needs Enterprise or a pilot; otherwise the answer is 402 `plan_required`.
 - Public keys are at `/.well-known/tokenlock-policy-keys.json` (also `/api/v1/tokenlock/policy-keys`). **Pin** the key in
@@ -123,7 +136,7 @@ to match how quickly a revoked key must stop working.
 The pass secret is yours: at least 32 characters, and never sent to us. A pass is a bearer token, so send it over HTTPS
 in an HttpOnly cookie or an Authorization header. Lifetime is the challenge's `pass_ttl_s` (default 900 s), capped by
 the key's `pass_ttl_s` and the agent/default TTLs in the policy, and by the key's `expires_at`.
-`verifyLocalPass(token, { passSecret, policy?, resource | identityOnly: true })` gives one of these results (0.4.3: exactly one of `resource` or `identityOnly: true`):
+`verifyLocalPass(token, { passSecret, policy?, resource | identityOnly: true, site? })` (`site` since 0.5.0: a pass whose `s` is another origin answers `wrong_site`, never valid) gives one of these results (0.4.3: exactly one of `resource` or `identityOnly: true`):
 - `valid:false, code:"bad_secret"`: `passSecret` missing or shorter than 32 characters (0.4.4).
 - `valid:false, code:"bad_resource"`: unknown option, no `resource` and no `identityOnly`, or a malformed `resource` (unknown field, path without method, empty/whitespace/padded/`null`/non-string value). Never treated as identity-only. `bad_path` for a relative or non-canonical path (always `valid:false`: the pass was not checked; 0.4.3 answered `valid:true` here).
 - `valid:false`: forged, expired, revoked, or the policy is unavailable, expired or not yet valid. Answer 401.

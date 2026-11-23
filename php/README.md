@@ -8,9 +8,24 @@ This drop-in works on PHP 7.4 or newer (shared hosting and cPanel are fine). It 
 
 Which tokens unlock the site is set in your [TOKENLOCK dashboard](https://proveitonchain.com/tokenlock/dashboard), not in this code.
 
+## Upgrading to 0.5.0 (security release, behavior changes)
+
+Current release: **0.5.0** (the security release prepared as 0.4.5, never published as 0.4.5, plus later review fixes).
+It denies sign-ins that 0.4.4 accepted: with `any_name`, numeric assets, subassets and a balance of a name the wallet
+does not own are refused (`bad_name` / `not_holder`); a `site` option that is not an `http(s)` origin is `bad_site`, a pass
+for another site `wrong_site`. See the CHANGELOG in the npm package / repository. **Upgrade from 0.4.4.** In 0.4.4,
+`tokenlock_sv_evaluate()` / `tokenlock_sv_verify_local_pass()` read a registered key with no `permissions`, `null`
+permissions, an empty permissions array, or missing / `null` `routes` or `methods` as `array('*')`, so every route and
+method was allowed. Now `routes` and `methods` must each be an explicit list of strings, otherwise that key is refused
+with `policy_invalid` for any request with a resource. `array()` grants nothing; only an explicit `'*'` is a wildcard.
+`environments` is required too (missing or `null` is `policy_invalid`; `array('*')` = any; `array()` = any, deprecated).
+A key restricted to environments denies a check that names no environment: set `'environment'` in `config.php` (or
+`TOKENLOCK_ENVIRONMENT`). A route with a trailing slash (`'/api/'`) is exact; write `'/api/*'` for a prefix. Identity-only
+checks are unchanged. The one rule for every integration: `AUTHORIZATION-CONTRACT.md` in the npm package / repository.
+
 ## Upgrading to 0.4.4 (security correction)
 
-Current release: **0.4.4**, a security correction with no new features. **Upgrade from 0.4.3.** An external review and
+0.4.4 was a security correction with no new features (superseded by 0.5.0). **Upgrade from 0.4.3.** An external review and
 a widened audit (every function in the package fuzzed) found validation that only ran on some paths. In self-verify:
 
 - `tokenlock_sv_evaluate()` validates the authorization request before any mode branch: `$resource` is
@@ -324,6 +339,8 @@ $v = tokenlock_sv_verify_local_pass($_COOKIE['tl_pass'] ?? '', array('pass_secre
 To check registered keys offline, use `tokenlock_sv_signed_policy(array('site_id' => …, 'secret_key' => …, 'public_keys' => array($kid => $key), 'cache_dir' => …))`.
 It caches the BIP-340-signed bundle on disk, refreshes it every 60 s, and rejects rollbacks. If refreshes fail, it keeps
 using the cached bundle until that bundle expires, then fails closed. You can also use `tokenlock_sv_local_policy(...)`.
+The cache directory must be writable: updates are locked and the newest bundle wins (0.5.0), and without a writable
+cache there is no fallback to an older bundle during an outage (`policy_unavailable`).
 
 A resource always needs a registered-keys policy: with no policy, or a token-mode policy, `tokenlock_sv_verify_local_pass()` answers `policy_required` (0.4.0; `identity_valid` says whether the pass itself is good).
 
