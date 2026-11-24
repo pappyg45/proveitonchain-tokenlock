@@ -137,7 +137,7 @@ export function createGuard(opts: GuardOptions, adapter = 'tokenlock', extraKeys
             if (info.valid && info.access !== undefined) info = await client.verifyPass(r.pass, resource, { strict });
           } else {
             info = await client.verifyPass(r.pass, resource, { strict });
-            if (info.code === 'policy_required' && info.identity_valid && !warnedNoPolicy) { warnedNoPolicy = true; if (typeof console !== 'undefined') console.warn(`[TOKENLOCK] ${adapter}: this site has no route policy (registered keys are off), so protected paths are denied with policy_required. If every token holder may open them, set tokenOnly: true. See https://proveitonchain.com/security/advisories/2026-11-18`); }
+            if (info.code === 'policy_required' && info.identity_valid && !warnedNoPolicy) { warnedNoPolicy = true; if (typeof console !== 'undefined') console.warn(`[TOKENLOCK] ${adapter}: this site has no route policy (registered keys are off), so protected paths are denied with policy_required. If every token holder may open them, set tokenOnly: true. See https://tokenlock.ai/security/advisories/2026-11-18`); }
           }
         }
         catch (e) {

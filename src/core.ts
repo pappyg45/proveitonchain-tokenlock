@@ -1,11 +1,11 @@
 /**
- * TOKENLOCK core: a tiny client for the Prove It Onchain gate API.
+ * TOKENLOCK core: a tiny client for the TOKENLOCK API.
  * Your pages stay on your server. This checks, with your secret key, that a visitor's pass is real,
  * unexpired and was issued for your site. Which tokens unlock your site is set in your dashboard.
  */
-export const DEFAULT_API = 'https://proveitonchain.com';
+export const DEFAULT_API = 'https://tokenlock.ai';
 export const DEFAULT_COOKIE = 'tokenlock_pass';
-export const VERSION = '0.5.0';
+export const VERSION = '0.5.1';
 
 export interface PassInfo {
   /** True only if the pass is real, unexpired, issued for your site and holds a token your site accepts. */
@@ -95,7 +95,7 @@ export interface ClientOptions {
   secretKey?: string;
   /** pk_… from your dashboard (safe in the browser). Defaults to process.env.TOKENLOCK_SITE_KEY. */
   siteKey?: string;
-  /** API origin. Default https://proveitonchain.com */
+  /** API origin. Default https://tokenlock.ai */
   apiBase?: string;
   /** Custom fetch (tests, older runtimes). */
   fetch?: typeof fetch;

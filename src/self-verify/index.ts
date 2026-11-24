@@ -1,4 +1,4 @@
-// TOKENLOCK self-verify (Enterprise), spec v1: https://proveitonchain.com/docs/self-verify
+// TOKENLOCK self-verify (Enterprise), spec v1: https://tokenlock.ai/docs/self-verify
 // Your server issues the challenge, stores the nonce, verifies the wallet signature locally and reads holdings from
 // a source you choose. Our API is optional: only if you pick our holdings provider or pull a signed policy bundle.
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
@@ -112,7 +112,7 @@ const lookupFailed = (who: string, why: string) => new SelfVerifyError('lookup_f
 
 /** Our hosted lookup (optional): GET /api/v1/tokenlock/holdings. You then trust our reading of the chain. */
 export function proveitonchainProvider(o: { api?: string; fetch?: FetchLike; timeoutMs?: number } = {}): HoldingsProvider {
-  const api = (o.api || 'https://proveitonchain.com').replace(/\/$/, ''); const f = o.fetch || (globalThis.fetch as any);
+  const api = (o.api || 'https://tokenlock.ai').replace(/\/$/, ''); const f = o.fetch || (globalThis.fetch as any);
   return { name: 'proveitonchain', async holdings(address, assets) {
     let r; try { r = await getJson(f, `${api}/api/v1/tokenlock/holdings?address=${encodeURIComponent(address)}&assets=${encodeURIComponent(assets.join(','))}`, o.timeoutMs ?? 8000); } catch (e: any) { throw lookupFailed('proveitonchain', e?.name === 'AbortError' ? 'timeout' : 'network'); }
     if (!r.ok || !r.body?.holdings || typeof r.body.holdings !== 'object' || Array.isArray(r.body.holdings)) throw lookupFailed('proveitonchain', 'status ' + r.status);
@@ -312,7 +312,7 @@ export interface SignedPolicyStatus { seq: number | null; fetched_at: number | n
  * succeeded, access fails closed (`policy_expired`).
  */
 export function signedPolicy(o: { siteId: string; secretKey: string; publicKeys: Record<string, string> | string[]; api?: string; refreshSeconds?: number; retryMinSeconds?: number; retryMaxSeconds?: number; ttlSeconds?: number; fetch?: FetchLike; timeoutMs?: number; load?: () => Promise<PolicyBundle> }): PolicySource & { status(): SignedPolicyStatus } {
-  const api = (o.api || 'https://proveitonchain.com').replace(/\/$/, ''); const f = o.fetch || (globalThis.fetch as any);
+  const api = (o.api || 'https://tokenlock.ai').replace(/\/$/, ''); const f = o.fetch || (globalThis.fetch as any);
   const refreshMs = Math.max(0, o.refreshSeconds ?? 60) * 1000;
   const retryMinMs = Math.max(0.1, o.retryMinSeconds ?? 5) * 1000;
   const retryMaxMs = Math.max(retryMinMs, (o.retryMaxSeconds ?? Math.max(1, o.refreshSeconds ?? 60)) * 1000);

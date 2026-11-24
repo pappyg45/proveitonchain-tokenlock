@@ -6,7 +6,13 @@ Visitors click **Sign in with your Token**, sign a one-time message in their wal
 
 This drop-in works on PHP 7.4 or newer (shared hosting and cPanel are fine). It needs no Composer packages. It uses `curl` when it is available, and falls back to `file_get_contents` if it is not.
 
-Which tokens unlock the site is set in your [TOKENLOCK dashboard](https://proveitonchain.com/tokenlock/dashboard), not in this code.
+Which tokens unlock the site is set in your [TOKENLOCK dashboard](https://tokenlock.ai/dashboard), not in this code.
+
+## Upgrading to 0.5.1 (default api_base is now tokenlock.ai)
+
+The default `'api_base'` is now https://tokenlock.ai, and `signin.php` loads `gate.js` from there. Nothing else changes:
+authorization and fail-closed checks are the same as 0.5.0. Set `'api_base'` (or `TOKENLOCK_API`) to keep another
+origin. A 0.5.0 drop-in that still uses the previous default origin keeps working: that host serves the same routes.
 
 ## Upgrading to 0.5.0 (security release, behavior changes)
 
@@ -41,7 +47,7 @@ a widened audit (every function in the package fuzzed) found validation that onl
   when it was missing, which verifies passes anyone can forge. It also never answers `valid => true` before the pass is
   checked (0.4.3 answered `valid => true, code => bad_path` for any token, even garbage, when the path was malformed).
 
-Advisory: https://proveitonchain.com/security/advisories/2026-11-18#correction-044
+Advisory: https://tokenlock.ai/security/advisories/2026-11-18#correction-044
 
 ## Upgrading to 0.4.3 (security correction, breaking: explicit identity_only)
 
@@ -63,7 +69,7 @@ and `tokenlock_verify_pass()` / `tokenlock_sv_verify_local_pass()` did an identi
 - Path patterns in `tokenlock_protect()` and the early block (`protect`, `public`, `exclude_paths`) must start with `/`
   (or be `*`). `'members/*'` matched nothing and silently left pages unprotected; it is now `bad_config` (500 / 503).
 
-Advisory: https://proveitonchain.com/security/advisories/2026-11-18#correction-043
+Advisory: https://tokenlock.ai/security/advisories/2026-11-18#correction-043
 
 ## Upgrading to 0.4.2 (security hardening, breaking: removed options)
 
@@ -91,7 +97,7 @@ To upgrade: replace the files in `tokenlock/` (keep your `config.php`) and remov
 
 ## Upgrading to 0.4.0 (breaking: explicit route authorization)
 
-0.4.0 fixes [security advisory 2026-11-18](https://proveitonchain.com/security/advisories/2026-11-18): no page path,
+0.4.0 fixes [security advisory 2026-11-18](https://tokenlock.ai/security/advisories/2026-11-18): no page path,
 method or environment is authorized unless a policy explicitly permits it. Identity and token checks are unchanged.
 
 - `tokenlock_verify_pass($pass, $resource)` on a **token-only** site (registered keys off) now answers
@@ -157,7 +163,7 @@ The example locked page is `/holders/`. Your public homepage is not changed.
 
 ## 1. Get your keys
 
-1. Sign in at **https://proveitonchain.com/tokenlock/dashboard** with your wallet.
+1. Sign in at **https://tokenlock.ai/dashboard** with your wallet.
 2. Add a site. For pepeproject.com, use both addresses:
    - `https://pepeproject.com`
    - `https://www.pepeproject.com`
@@ -248,7 +254,7 @@ php -S localhost:8080 -t .
 # http://localhost:8080/holders/
 ```
 
-MIT © Prove It Onchain
+MIT
 
 ## Enterprise access controls (0.2.0)
 
@@ -324,7 +330,7 @@ Settings go in `config.php`:
 `tokenlock/self-verify.php` runs the whole sign-in on your server. It needs the **GMP** extension. You issue the
 challenge, keep the nonce, verify the wallet signature locally (BIP-322 and legacy: XCP Wallet, Horizon, Unisat, Xverse,
 Leather) and read holdings from a source you choose. The formats are the same as the Node SDK. Spec:
-https://proveitonchain.com/docs/self-verify
+https://tokenlock.ai/docs/self-verify
 
 ```php
 require __DIR__ . '/tokenlock/self-verify.php';

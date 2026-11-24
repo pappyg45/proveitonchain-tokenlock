@@ -43,7 +43,7 @@ $ready = (strpos($siteKey, 'pk_') === 0 && strlen($siteKey) > 8);
     </div>
   </main>
 <?php if ($ready) { ?>
-  <script src="https://proveitonchain.com/gate.js" data-site-key="<?php echo tokenlock_h($siteKey); ?>"></script>
+  <script src="https://tokenlock.ai/gate.js" data-site-key="<?php echo tokenlock_h($siteKey); ?>"></script>
   <script>
   (function () {
     // Same rules as tokenlock_safe_next() and the SDK's safeNext(): same-site relative paths only.

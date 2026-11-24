@@ -1,6 +1,6 @@
 <?php
 /**
- * TOKENLOCK self-verify for PHP (Enterprise), spec v1: https://proveitonchain.com/docs/self-verify
+ * TOKENLOCK self-verify for PHP (Enterprise), spec v1: https://tokenlock.ai/docs/self-verify
  * Your server issues the challenge, stores the nonce, verifies the wallet signature locally (GMP, no network) and
  * reads holdings from a source you choose. Our API is optional: only if you pick our holdings provider or pull a
  * signed policy bundle. Same message, policy and pass formats as the Node SDK (@proveitonchain/tokenlock/self-verify).
@@ -243,7 +243,7 @@ function tokenlock_sv_get($o, $url, $headers = array())
 /** Our hosted lookup (optional). You then trust our reading of the chain. A provider is fn($address, $assets): array. */
 function tokenlock_sv_proveitonchain_provider($o = array())
 {
-    $api = rtrim($o['api'] ?? 'https://proveitonchain.com', '/');
+    $api = rtrim($o['api'] ?? 'https://tokenlock.ai', '/');
     return function ($address, $assets) use ($o, $api) {
         try {
             list($st, $b) = tokenlock_sv_get($o, $api . '/api/v1/tokenlock/holdings?address=' . rawurlencode($address) . '&assets=' . rawurlencode(implode(',', $assets)));
@@ -510,7 +510,7 @@ function tokenlock_sv_whole($v)
  */
 function tokenlock_sv_signed_policy($o)
 {
-    $api = rtrim($o['api'] ?? 'https://proveitonchain.com', '/');
+    $api = rtrim($o['api'] ?? 'https://tokenlock.ai', '/');
     $dir = $o['cache_dir'] ?? (__DIR__ . '/cache');
     $file = $dir . '/tokenlock_policy_' . substr(hash('sha256', (string) $o['site_id']), 0, 16) . '.json';
     return function () use ($o, $api, $file) {

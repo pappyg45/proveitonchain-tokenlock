@@ -38,7 +38,7 @@ const rawPath = (u) => (String(u).match(/^[a-z][a-z0-9+.-]*:\/\/[^/?#]*([^?#]*)/
  * { ok:false, v, code }; throws when the API can't answer. Authorization denials keep the server's reason
  * (route_not_allowed, key_revoked, …); only a malformed answer is 'incomplete_answer'.
  */
-const VERSION = '0.5.0';
+const VERSION = '0.5.1';
 const MAX_ANSWER_BYTES = 65536;
 const REMOVED = ['TOKENLOCK_FAIL_OPEN', 'TOKENLOCK_CHECK_RESOURCE', 'TOKENLOCK_STRICT'];
 /** Config check (0.4.2). Returns null when the settings are usable, else the reason. Never guesses a default for a bad value. */
@@ -88,7 +88,7 @@ export async function verify(pass, env, resource) {
   let r, text;
   try {
     // Fail-closed timeout: a slow or hung API throws (→ 503), it never lets the request through.
-    r = await fetch((env.TOKENLOCK_API || 'https://proveitonchain.com') + '/api/v1/gate/verify', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + env.TOKENLOCK_SECRET_KEY, 'x-tokenlock-sdk': 'cf-worker/' + VERSION }, body: JSON.stringify(body), signal: AbortSignal.timeout(ms) });
+    r = await fetch((env.TOKENLOCK_API || 'https://tokenlock.ai') + '/api/v1/gate/verify', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + env.TOKENLOCK_SECRET_KEY, 'x-tokenlock-sdk': 'cf-worker/' + VERSION }, body: JSON.stringify(body), signal: AbortSignal.timeout(ms) });
     if (r.status >= 500) throw new Error('tokenlock_unavailable');
     if (Number(r.headers.get('content-length') || 0) > MAX_ANSWER_BYTES) throw new Error('tokenlock_bad_answer');
     text = await r.text();
@@ -167,7 +167,7 @@ export default {
     const url = new URL(req.url);
     const path = canonicalPath(rawPath(req.url));
     if (path === null) return json({ error: 'Not a valid path.', code: 'bad_path', reason: 'Not a valid path.' }, 400);
-    if (path === SIGN_IN) return new Response(SIGNIN_HTML(env.TOKENLOCK_SITE_KEY, env.TOKENLOCK_API || 'https://proveitonchain.com'), { headers: { 'content-type': 'text/html; charset=utf-8' } });
+    if (path === SIGN_IN) return new Response(SIGNIN_HTML(env.TOKENLOCK_SITE_KEY, env.TOKENLOCK_API || 'https://tokenlock.ai'), { headers: { 'content-type': 'text/html; charset=utf-8' } });
     const bad = configProblem(env);
     const badConfig = () => json({ error: 'This site\'s TOKENLOCK settings are invalid, so protected access is refused.', code: 'bad_config', reason: bad }, 500);
     // 0.4.3: when the protected-path list itself is unusable, no path can be known to be public: refuse everything.

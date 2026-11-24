@@ -8,11 +8,11 @@ Visitors click **Sign in with your Token**, sign a one-time message in their wal
 
 - Next.js middleware + route handlers, Express middleware, a React button, and a Cloudflare Worker template
 - TypeScript, ESM + CommonJS, zero dependencies
-- Which tokens unlock your site is set in your [dashboard](https://proveitonchain.com/tokenlock/dashboard), not in code
+- Which tokens unlock your site is set in your [dashboard](https://tokenlock.ai/dashboard), not in code
 
 ## 1. Get your keys
 
-Sign in at **https://proveitonchain.com/tokenlock/dashboard**, add your site (its address, e.g. `https://yoursite.com`, plus `http://localhost:3000` while developing) and pick the tokens that unlock it. You get:
+Sign in at **https://tokenlock.ai/dashboard**, add your site (its address, e.g. `https://yoursite.com`, plus `http://localhost:3000` while developing) and pick the tokens that unlock it. You get:
 
 - `pk_…` publishable site key, safe in the browser
 - `sk_…` secret key, server only, shown once
@@ -22,9 +22,16 @@ NEXT_PUBLIC_TOKENLOCK_SITE_KEY=pk_…
 TOKENLOCK_SECRET_KEY=sk_…
 ```
 
+## Upgrading to 0.5.1 (default origin is now tokenlock.ai)
+
+Current release: **0.5.1**. The default hosted API origin, the `gate.js` URL and the dashboard, docs and advisory links
+are now https://tokenlock.ai. Nothing else changes: authorization, path matching and fail-closed checks are the same as
+0.5.0. `apiBase` / `api` / `TOKENLOCK_API` still override the origin. 0.5.0 installs that still use the previous default
+origin keep working: that host serves the same `/api/v1/gate/*` and `/api/v1/tokenlock/*` routes.
+
 ## Upgrading to 0.5.0 (security release, behavior changes)
 
-Current release: **0.5.0**. It is the security release prepared as 0.4.5 (never published as 0.4.5) plus fixes from
+0.5.0 is the security release prepared as 0.4.5 (never published as 0.4.5) plus fixes from
 later reviews. It is a minor version because it **denies sign-ins and passes that 0.4.4 accepted** and adds options
 (`site`, owned-name checks). If you use `anyName` (any name on Bitcoin): numeric assets (`A…`), subassets and a balance
 of a name the wallet does not own are now refused (`bad_name` / `not_holder`); `site` options and challenges that are
@@ -84,7 +91,7 @@ If you check only `valid`, the `bad_path` row matters: upgrade. The starter proj
 set `tokenOnly: true` (holder sites) and call `getPass(undefined, { identityOnly: true })`. Hosted API: the lower-level
 functions behind `/api/v1/gate/verify` now validate what they are given, and the "site still accepts this token" check
 also runs when a pass is verified without a secret key. PHP drop-in 0.4.4 has the same fixes. Advisory:
-https://proveitonchain.com/security/advisories/2026-11-18#correction-044
+https://tokenlock.ai/security/advisories/2026-11-18#correction-044
 
 ## Upgrading to 0.4.3 (security correction, breaking: explicit identity-only)
 
@@ -103,7 +110,7 @@ and the call became an identity-only check. Since 0.4.3 every authorization call
 | `authorize(req, …)` without `{ path, method }` | identity-only | throws `bad_resource` |
 
 Server-side: the hosted API applies the same schema to `/api/v1/gate/verify` (malformed → `bad_resource` /
-`bad_path`). Advisory: https://proveitonchain.com/security/advisories/2026-11-18#correction-043
+`bad_path`). Advisory: https://tokenlock.ai/security/advisories/2026-11-18#correction-043
 
 ## Upgrading to 0.4.2 (security hardening, breaking: removed options)
 
@@ -133,7 +140,7 @@ variables above). Nothing else changes for a correct configuration.
 
 ## Upgrading to 0.4.0 (breaking: explicit route authorization)
 
-0.4.0 fixes [security advisory 2026-11-18](https://proveitonchain.com/security/advisories/2026-11-18): **no route,
+0.4.0 fixes [security advisory 2026-11-18](https://tokenlock.ai/security/advisories/2026-11-18): **no route,
 method or environment is authorized unless a policy explicitly permits it.** Identity and token checks are unchanged.
 
 | You call | 0.3.x | 0.4.0 |
@@ -255,7 +262,7 @@ app.get('/members', (req, res) => res.send(`Hi ${req.tokenlock.address}`));
 The Express middleware also serves `POST /api/tokenlock/session` and `/api/tokenlock/signout`. Your sign-in page can use the script tag:
 
 ```html
-<script src="https://proveitonchain.com/gate.js" data-site-key="pk_…"></script>
+<script src="https://tokenlock.ai/gate.js" data-site-key="pk_…"></script>
 <script>
   ProveItGate.signIn().then(({ pass }) =>
     fetch('/api/tokenlock/session', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pass }) })
@@ -371,15 +378,15 @@ refused too (`bad_config`). Since 0.4.3 unknown options and authorization fields
 
 ## Plans
 
-Unlimited sign-ins on every plan; plans are priced by monthly active wallets (each wallet that signs in to your sites counts once a month). Free: 1 site, 100 active wallets a month. Starter ($19/mo), Pro ($49/mo or $490/yr) and Business ($149/mo) add sites, active wallets, branding and alerts. Paid in BTC. See https://proveitonchain.com/tokenlock. Going over never breaks your site.
+Unlimited sign-ins on every plan; plans are priced by monthly active wallets (each wallet that signs in to your sites counts once a month). Free: 1 site, 100 active wallets a month. Starter ($19/mo), Pro ($49/mo or $490/yr) and Business ($149/mo) add sites, active wallets, branding and alerts. Paid in BTC. See https://tokenlock.ai. Going over never breaks your site.
 
 A successful sign-in (`TokenlockClient.signIn`, `ProveItGate.signIn`) also returns `usage`: `{ month, active_wallets, limit, pct, over, new_wallet, site_signins, signins: 'unlimited', note? }` (type `SignInUsage`). `over` is informational only; sign-ins keep working.
 
-MIT © Prove It Onchain
+MIT
 
 ## Enterprise access controls (0.3.0)
 
-Sites with **registered keys** turned on (Business, Enterprise, or a pilot) check every request against the key's routes, methods, environment and expiry. In **strict** mode (the 0.3.0 default) the SDK never caches registered-key answers, so an admin revoke or permission change is visible on the next request. A token transfer is noticed on the next hosted holdings re-check (at most `recheck_holdings_s`, 300 seconds by default), not immediately, even with `cache: false`. See [Revocation window](#revocation-window). Organizations are optional unless the site turns on `require_org`. The same site secret verifies passes and manages access, organizations and keys; separate credentials are planned, not shipped. Token-only sites (registered keys off) have no route rules: since 0.4.0 a check that names a path, method or environment answers `policy_required`; use identity-only checks or the middleware's `tokenOnly: true`. Full docs: https://proveitonchain.com/docs/enterprise
+Sites with **registered keys** turned on (Business, Enterprise, or a pilot) check every request against the key's routes, methods, environment and expiry. In **strict** mode (the 0.3.0 default) the SDK never caches registered-key answers, so an admin revoke or permission change is visible on the next request. A token transfer is noticed on the next hosted holdings re-check (at most `recheck_holdings_s`, 300 seconds by default), not immediately, even with `cache: false`. See [Revocation window](#revocation-window). Organizations are optional unless the site turns on `require_org`. The same site secret verifies passes and manages access, organizations and keys; separate credentials are planned, not shipped. Token-only sites (registered keys off) have no route rules: since 0.4.0 a check that names a path, method or environment answers `policy_required`; use identity-only checks or the middleware's `tokenOnly: true`. Full docs: https://tokenlock.ai/docs/enterprise
 
 ```js
 const info = await verifyPass(pass, { secretKey, path: '/api/partner/prices', method: 'GET', environment: 'production' });
@@ -437,7 +444,7 @@ Three kinds of change reach your server at different speeds. Only admin changes 
 | **Hosted verification**, token-only sites | Holdings are checked at sign-in only. An existing pass stays good until it expires (15 min by default, at most 24 h); the next sign-in is refused |
 | **Self-verify** | Holdings are read at sign-in (`verifySignIn`). `verifyLocalPass` does not re-read them, so a pass stays good until it expires (`pass_ttl_s`, 900 s by default, capped by the key and agent TTLs). The policy bundle carries key status, not live holdings; the hosted re-check does not apply. Use short pass lifetimes, or re-check holdings yourself, if a transfer must cut access sooner |
 
-During a holdings-source outage, hosted verification keeps passes younger than 2 × `recheck_holdings_s` working unless `require_fresh_holdings` is on. See https://proveitonchain.com/docs/enterprise#timing.
+During a holdings-source outage, hosted verification keeps passes younger than 2 × `recheck_holdings_s` working unless `require_fresh_holdings` is on. See https://tokenlock.ai/docs/enterprise#timing.
 
 `clearCache(pass)` drops every cached answer for that pass, for all routes.
 
@@ -449,7 +456,7 @@ Requests with `Accept: application/json` (and not `text/html`), or under `apiPat
 
 Run the whole sign-in on your server: you issue the challenge, keep the nonce, verify the wallet signature locally
 (BIP-322 and legacy; XCP Wallet, Horizon, Unisat, Xverse, Leather) and read holdings from a source you choose.
-Spec: [docs/self-verify-spec.md](docs/self-verify-spec.md) · https://proveitonchain.com/docs/self-verify
+Spec: [docs/self-verify-spec.md](docs/self-verify-spec.md) · https://tokenlock.ai/docs/self-verify
 
 ```js
 import { createChallenge, verifySignIn, verifyLocalPass, fileNonceStore, tokenscanProvider, requireAgreement,
@@ -478,7 +485,7 @@ Pin the policy-signing key, pull a signed policy bundle, and enforce **both** `v
 import { createChallenge, verifySignIn, verifyLocalPass, fileNonceStore,
   tokenscanProvider, signedPolicy } from '@proveitonchain/tokenlock/self-verify';
 
-// Pin the key from https://proveitonchain.com/.well-known/tokenlock-policy-keys.json (kid → hex).
+// Pin the key from https://tokenlock.ai/.well-known/tokenlock-policy-keys.json (kid → hex).
 const publicKeys = { [process.env.TOKENLOCK_POLICY_KID]: process.env.TOKENLOCK_POLICY_PUBLIC_KEY };
 const policy = signedPolicy({
   siteId: process.env.TOKENLOCK_SITE_ID,
@@ -551,11 +558,11 @@ This is what the hosted TOKENLOCK service records when a check reaches our API (
 | Self-verify decision | Not written to the hosted log. There is no `onDecision` hook in the SDK or PHP drop-in today. If you need an audit trail, record the `verifySignIn` / `verifyLocalPass` result on your server (that is your responsibility today; a hook is planned, not shipped). |
 | Logging failure | Access still proceeds. `recordDecision` catches Redis errors and does not fail the verify or sign-in. The decision webhook (Business and Enterprise, opt-in) is one POST, 3 second timeout, no retries; delivery is best-effort, not at-least-once. A failed webhook leaves the row in the Redis export until retention or the cap drops it. |
 
-Full fields, retention, caps and export: https://proveitonchain.com/docs/enterprise#logging
+Full fields, retention, caps and export: https://tokenlock.ai/docs/enterprise#logging
 
 ## Decision records: retention, modification and purge
 
-This is how the hosted TOKENLOCK service stores decision and access records today (not something the SDK itself stores). Full version: https://proveitonchain.com/docs/enterprise#decision-records
+This is how the hosted TOKENLOCK service stores decision and access records today (not something the SDK itself stores). Full version: https://tokenlock.ai/docs/enterprise#decision-records
 
 **Where records live.** Access state (settings, organizations, keys, owner names and emails, open requests) lives in Upstash Redis. After each admin change, a durable backup is written to Vercel Blob at an HMAC-hashed path, encrypted with AES-256-GCM. A separate encrypted journal records key and policy changes and is replayed after a restore so a later revoke is not undone by an older snapshot. The backup holds state, keys and requests. It does not include the decision log or the admin-action history list. The decision log records sign-in outcomes, denied pass checks, and successful verifies that reach the API (these count toward the monthly cap). SDK or PHP cache hits and self-verify decisions are not hosted-logged. The log lives in Upstash Redis only, in a per-site list for each day. Site documents live in Vercel Blob.
 
@@ -563,7 +570,7 @@ This is how the hosted TOKENLOCK service stores decision and access records toda
 
 **Soft deletion.** Deleting a site marks the site document `deleted` with a `deleted_at` time and removes it from your account list, but the document stays in storage. The site's publishable key, secret key and outstanding passes stop working immediately. Soft deletion does not purge Redis access state, the encrypted Blob backup or journal, or decision-log keys. Decision-log keys expire with their retention TTL. Access state, the backup and the journal have no automatic expiry. To request permanent deletion of owner details, backups, journals and residual site records, email gotproof@oplanbtc.com.
 
-**Who can modify or purge them.** You (the site dashboard or the site secret key) can export the decision log (`GET /access/decisions/export`, CSV or JSONL) and can change your settings, keys and organizations. You cannot edit or delete individual decision records; there is no customer API for that. You can soft-delete the site, which hides it from your account and immediately stops its credentials, but does not erase the stored records above. Prove It Onchain operators who have the live Redis credentials can read, change or delete any of these Redis keys. Operators who have the Vercel Blob credentials can read the ciphertext of a backup, overwrite it or delete it; operators who also have the backup encryption key can decrypt it. The platform admin token can turn enterprise-access pilot on or off for a site; it is not a decision-log editor.
+**Who can modify or purge them.** You (the site dashboard or the site secret key) can export the decision log (`GET /access/decisions/export`, CSV or JSONL) and can change your settings, keys and organizations. You cannot edit or delete individual decision records; there is no customer API for that. You can soft-delete the site, which hides it from your account and immediately stops its credentials, but does not erase the stored records above. TOKENLOCK operators who have the live Redis credentials can read, change or delete any of these Redis keys. Operators who have the Vercel Blob credentials can read the ciphertext of a backup, overwrite it or delete it; operators who also have the backup encryption key can decrypt it. The platform admin token can turn enterprise-access pilot on or off for a site; it is not a decision-log editor.
 
 **Retention alone is not tamper evidence.** Anyone with the credentials above can change or delete stored records. Entries are not hash-chained, and there is no signed or anchored digest, so a later change would not be evident from the log itself.
 

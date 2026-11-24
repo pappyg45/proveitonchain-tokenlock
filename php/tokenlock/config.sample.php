@@ -2,7 +2,7 @@
 /**
  * Copy this file to config.php and fill in your keys.
  *
- *   1. Sign in at https://proveitonchain.com/tokenlock/dashboard
+ *   1. Sign in at https://tokenlock.ai/dashboard
  *   2. Add your site (its addresses) and pick the tokens that unlock it
  *   3. Paste the pk_ site key and sk_ secret key below
  *
@@ -38,7 +38,7 @@ return array(
     // to this library (already blocked by .htaccess), use: __DIR__ . '/cache'
     // 'cache_dir' => __DIR__ . '/cache',
 
-    // 'api_base' => 'https://proveitonchain.com',
+    // 'api_base' => 'https://tokenlock.ai',
     // 'cookie_name' => 'tokenlock_pass',
     // 'max_age_seconds' => 86400,
 

@@ -14,12 +14,12 @@
  * Keys live in config.php (copy config.sample.php). Never put the secret key
  * in a browser page or in chat.
  *
- * https://proveitonchain.com/tokenlock
+ * https://tokenlock.ai
  */
 if (defined('TOKENLOCK_PHP')) {
     return;
 }
-define('TOKENLOCK_PHP', '0.5.0');
+define('TOKENLOCK_PHP', '0.5.1');
 
 class TokenlockException extends Exception
 {
@@ -61,7 +61,7 @@ function tokenlock_configure($overrides = null)
 function tokenlock_defaults()
 {
     return array(
-        'api_base' => 'https://proveitonchain.com',
+        'api_base' => 'https://tokenlock.ai',
         'site_key' => '',
         'secret_key' => '',
         'sign_in_page' => '/tokenlock/signin.php',
@@ -1213,7 +1213,7 @@ function tokenlock_check_request($pass, $opts = array())
     $info = tokenlock_verify_pass($pass, $res, $opts);
     if (is_array($info) && isset($info['code']) && $info['code'] === 'policy_required' && !empty($info['identity_valid']) && !$warned) {
         $warned = true;
-        error_log('[TOKENLOCK] This site has no route policy (registered keys are off), so protected pages are denied with policy_required. If every token holder may open them, set token_only = true. See https://proveitonchain.com/security/advisories/2026-11-18');
+        error_log('[TOKENLOCK] This site has no route policy (registered keys are off), so protected pages are denied with policy_required. If every token holder may open them, set token_only = true. See https://tokenlock.ai/security/advisories/2026-11-18');
     }
     return $info;
 }

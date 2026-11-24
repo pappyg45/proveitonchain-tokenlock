@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.1 (default origin: tokenlock.ai)
+
+- The default hosted API origin (`DEFAULT_API`, the React `apiBase`, self-verify `api`, the PHP drop-in's `api_base`,
+  the Cloudflare Worker's `TOKENLOCK_API` fallback), the `gate.js` URL, and the dashboard, docs and advisory links are
+  now https://tokenlock.ai.
+- `TOKENLOCK_API` / `apiBase` / `api` / `api_base` still override the origin.
+- Not an authorization-behavior change: route matching, policies and fail-closed checks are the same as 0.5.0.
+- 0.5.0 clients that still use the previous default origin keep working: that host still serves the same
+  `/api/v1/gate/*` and `/api/v1/tokenlock/*` routes.
+- PHP drop-in 0.5.1 (`TOKENLOCK_PHP`), Cloudflare Worker template 0.5.1.
+
 ## 0.5.0 (security release; behavior changes)
 
 > **Behavior change: read this before upgrading.** 0.5.0 is the security release prepared as 0.4.5 (0.4.5 was never

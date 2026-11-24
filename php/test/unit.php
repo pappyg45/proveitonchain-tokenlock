@@ -61,7 +61,7 @@ $handler = function ($method, $url, $headers, $body) use (&$calls, $SK, $GOOD, $
 tokenlock_configure(array(
     'secret_key' => $SK,
     'site_key' => 'pk_good',
-    'api_base' => 'https://proveitonchain.com',
+    'api_base' => 'https://tokenlock.ai',
     'cache_dir' => $cacheDir,
     'http_handler' => $handler,
     'sign_in_page' => '/tokenlock/signin.php',
@@ -128,7 +128,7 @@ expect(empty($mal['valid']) && $mal['code'] === 'bad_pass', 'malformed pass is b
 
 tokenlock_configure(array(
     'secret_key' => 'sk_' . str_repeat('b', 43),
-    'api_base' => 'https://proveitonchain.com',
+    'api_base' => 'https://tokenlock.ai',
     'cache_dir' => $cacheDir,
     'http_handler' => $handler,
 ));
@@ -138,7 +138,7 @@ expect(empty($wrong['valid']), 'wrong secret key is never valid');
 $threw = false;
 tokenlock_configure(array(
     'secret_key' => '',
-    'api_base' => 'https://proveitonchain.com',
+    'api_base' => 'https://tokenlock.ai',
     'cache_dir' => $cacheDir,
     'http_handler' => $handler,
 ));
@@ -151,7 +151,7 @@ expect($threw, 'missing secret key throws bad_config (0.4.2; was no_secret_key)'
 
 tokenlock_configure(array(
     'secret_key' => $SK,
-    'api_base' => 'https://proveitonchain.com',
+    'api_base' => 'https://tokenlock.ai',
     'cache_dir' => $cacheDir,
     'http_handler' => function () {
         return array('status' => 200, 'body' => json_encode(array('valid' => true, 'address' => 'x')));
@@ -164,7 +164,7 @@ expect(empty($short['valid']), 'a "valid" answer without site_id is treated as i
 $net = false;
 tokenlock_configure(array(
     'secret_key' => $SK,
-    'api_base' => 'https://proveitonchain.com',
+    'api_base' => 'https://tokenlock.ai',
     'cache_dir' => $cacheDir,
     'http_handler' => function () {
         throw new TokenlockException('Could not reach the TOKENLOCK API.', 0, 'network');
@@ -181,7 +181,7 @@ expect($net, 'network failure throws TokenlockException(network)');
 // cache never past expiry
 tokenlock_configure(array(
     'secret_key' => $SK,
-    'api_base' => 'https://proveitonchain.com',
+    'api_base' => 'https://tokenlock.ai',
     'cache_dir' => $cacheDir,
     'http_handler' => function () {
         return array('status' => 200, 'body' => json_encode(array(
@@ -204,7 +204,7 @@ $acalls = array();
 $revoked = false;
 tokenlock_configure(array(
     'secret_key' => $SK,
-    'api_base' => 'https://proveitonchain.com',
+    'api_base' => 'https://tokenlock.ai',
     'cache_dir' => $cacheDir,
     'http_handler' => function ($method, $url, $headers, $body) use (&$acalls, &$revoked, $future) {
         $j = json_decode($body, true);
@@ -241,7 +241,15 @@ tokenlock_clear_cache();
 $r = tokenlock_verify_pass($ENT, array('path' => '/api/x', 'method' => 'GET'));
 expect(empty($r['valid']) && $r['code'] === 'key_revoked', '0.2.0: revoked key is denied on the next check');
 eq(in_array('route_not_allowed', tokenlock_forbidden_codes(), true), true, '0.2.0: route denials answer 403, not a sign-in redirect');
-eq(TOKENLOCK_PHP, '0.5.0', 'version 0.5.0');
+eq(TOKENLOCK_PHP, '0.5.1', 'version 0.5.1');
+// 0.5.1: the default hosted origin is tokenlock.ai; an explicit api_base still overrides it (trailing slash trimmed).
+$tl051 = tokenlock_defaults();
+eq($tl051['api_base'], 'https://tokenlock.ai', '0.5.1 default api_base is https://tokenlock.ai');
+$tl051 = tokenlock_configure(array('secret_key' => $SK));
+eq($tl051['api_base'], 'https://tokenlock.ai', '0.5.1 api_base omitted -> https://tokenlock.ai');
+$tl051 = tokenlock_configure(array('secret_key' => $SK, 'api_base' => 'https://api.example.com/'));
+eq($tl051['api_base'], 'https://api.example.com', '0.5.1 api_base override still wins');
+tokenlock_configure(null);
 
 // ---------------------------------------------------------------- 0.2.1 security patch
 echo "0.2.1\n";
@@ -266,7 +274,7 @@ foreach ($V['protected_case']['not_protected'] as $p) {
 }
 $shape = null;
 tokenlock_configure(array(
-    'secret_key' => $SK, 'api_base' => 'https://proveitonchain.com', 'cache_dir' => $cacheDir,
+    'secret_key' => $SK, 'api_base' => 'https://tokenlock.ai', 'cache_dir' => $cacheDir,
     'http_handler' => function ($method, $url, $headers, $body) use (&$shape, &$acalls, $future) {
         $j = json_decode($body, true);
         $acalls[] = $j;

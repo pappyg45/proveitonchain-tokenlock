@@ -1,4 +1,4 @@
-// End-to-end against production (https://proveitonchain.com) and a local PHP server.
+// End-to-end against production (https://tokenlock.ai) and a local PHP server.
 // Creates a throwaway account + test site through the dashboard API, runs the failure
 // paths, then deletes the site. No funds, no transactions: the account key is random
 // and lives only in memory. Secrets are never printed.
@@ -11,7 +11,7 @@ import { secp256k1 } from '../../tokenlock-sdk/node_modules/@noble/curves/secp25
 import { sha256 } from '../../tokenlock-sdk/node_modules/@noble/hashes/sha2.js';
 import { ripemd160 } from '../../tokenlock-sdk/node_modules/@noble/hashes/legacy.js';
 
-const API = process.env.TOKENLOCK_API || 'https://proveitonchain.com';
+const API = process.env.TOKENLOCK_API || 'https://tokenlock.ai';
 const PHP = process.env.PHP || 'php';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 

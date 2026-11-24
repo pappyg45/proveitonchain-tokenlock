@@ -1,4 +1,4 @@
-// End-to-end against production (https://proveitonchain.com). Creates a throwaway account + test site through the
+// End-to-end against production (https://tokenlock.ai). Creates a throwaway account + test site through the
 // dashboard API, runs the failure paths through the real SDK and a local Express-style server, then deletes the site.
 // No funds, no transactions: the account key is random and lives only in memory.
 import http from 'node:http';
@@ -9,7 +9,7 @@ import { ripemd160 } from '@noble/hashes/legacy.js';
 import * as core from '../dist/index.js';
 import { tokenlock } from '../dist/express.js';
 
-const API = process.env.TOKENLOCK_API || 'https://proveitonchain.com';
+const API = process.env.TOKENLOCK_API || 'https://tokenlock.ai';
 const A = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ123456789'.split('').sort((a, b) => '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'.indexOf(a) - '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'.indexOf(b)).join('');
 function b58check(payload) {
   const full = new Uint8Array([...payload, ...sha256(sha256(payload)).slice(0, 4)]);

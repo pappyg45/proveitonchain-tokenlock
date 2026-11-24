@@ -18,7 +18,7 @@ export interface SignInWithBitcoinProps {
   title?: string;
   /** How long the sign-in lasts, 60–86400 seconds. Default 3600. */
   passTtlSeconds?: number;
-  /** API origin. Default https://proveitonchain.com */
+  /** API origin. Default https://tokenlock.ai */
   apiBase?: string;
   className?: string;
   style?: React.CSSProperties;

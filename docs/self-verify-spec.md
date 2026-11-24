@@ -1,6 +1,6 @@
 # TOKENLOCK self-verify, spec v1
 
-Status: preview (SDK 0.5.0, self-verify since 0.3.0; PHP drop-in 0.5.0; 0.4.2 adds policy validation: malformed policies are `policy_invalid`; 0.4.3 adds the strict request schema: malformed `resource` or unknown options are `bad_resource`, identity-only is explicit; 0.4.4 enforces every policy's validity window wherever it is used and validates `evaluate()` input before any mode branch; 0.4.5 requires explicit `routes` and `methods` on every registered key). Enterprise. Web version: https://proveitonchain.com/docs/self-verify
+Status: preview (SDK 0.5.0, self-verify since 0.3.0; PHP drop-in 0.5.0; 0.4.2 adds policy validation: malformed policies are `policy_invalid`; 0.4.3 adds the strict request schema: malformed `resource` or unknown options are `bad_resource`, identity-only is explicit; 0.4.4 enforces every policy's validity window wherever it is used and validates `evaluate()` input before any mode branch; 0.4.5 requires explicit `routes` and `methods` on every registered key). Enterprise. Web version: https://tokenlock.ai/docs/self-verify
 
 Self-verify lets **your server** run "Sign in with your Token" from start to finish. You issue the challenge and keep
 the nonce. You check the wallet signature locally, and you read holdings from a source you pick. For the sign-in itself,
