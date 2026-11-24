@@ -7,6 +7,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import * as SV from '../dist/self-verify.js';
 
 const M = JSON.parse(readFileSync(new URL('./fixtures/authz-matrix.json', import.meta.url), 'utf8'));
+const PKG_VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 const SECRET = 'm'.repeat(40);
 const ADDR = 'bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq';
 const NOW = Date.parse('2026-11-18T18:00:00.000Z');
@@ -69,7 +70,7 @@ test('Cloudflare worker 0.4.0: token-only site needs TOKENLOCK_TOKEN_ONLY=1; it 
     assert.equal(r.status, 403); assert.equal((await r.json()).code, 'policy_required', 'token-only site without TOKENLOCK_TOKEN_ONLY: denied');
     r = await get('/members/x', { ...env, TOKENLOCK_TOKEN_ONLY: '1' });
     assert.equal(r.status, 200); assert.equal(await r.text(), 'ORIGIN', 'with TOKENLOCK_TOKEN_ONLY=1: holder reaches the origin');
-    assert.ok(sent.every((s) => s.client === 'cf-worker/0.5.0'));
+    assert.ok(sent.every((s) => s.client === 'cf-worker/' + PKG_VERSION));
     registered = true;
     r = await get('/admin/x', { ...env, TOKENLOCK_TOKEN_ONLY: '1' });
     assert.equal(r.status, 403, 'registered keys: TOKENLOCK_TOKEN_ONLY cannot bypass the route policy'); assert.equal((await r.json()).code, 'route_not_allowed');

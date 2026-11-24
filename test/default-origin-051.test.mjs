@@ -43,18 +43,21 @@ test('O3 built dist uses https://tokenlock.ai as the default origin (JS and typi
   assert.equal(core.DEFAULT_API, NEW);
 });
 
-test('O4 repo-wide: proveitonchain.com appears only in the three historical CHANGELOG advisory links', () => {
+test('O4 repo-wide: the previous hosted origin appears only in the three historical CHANGELOG advisory links', () => {
+  const oldHost = ['proveitonchain', '.com'].join('');
+  const self = 'test/default-origin-051.test.mjs';
   const files = execFileSync('git', ['ls-files'], { cwd: ROOT }).toString().split('\n').filter(Boolean);
   const hits = [];
   for (const f of files) {
+    if (f === self) continue;
     let s; try { s = read(f); } catch { continue; }
-    s.split('\n').forEach((l, i) => { if (/proveitonchain\.com/.test(l.replace(/github\.com\/pappyg45\/proveitonchain-tokenlock/g, ''))) hits.push(`${f}:${i + 1}`); });
+    s.split('\n').forEach((l, i) => { if (l.replace(/github\.com\/pappyg45\/proveitonchain-tokenlock/g, '').includes(oldHost)) hits.push(`${f}:${i + 1}`); });
   }
   assert.equal(hits.filter((h) => !h.startsWith('CHANGELOG.md:')).length, 0, hits.join(', '));
   const cl = read('CHANGELOG.md');
-  assert.equal((cl.match(/proveitonchain\.com/g) || []).length, 3);
+  assert.equal((cl.match(new RegExp(oldHost.replace('.', '\\.'), 'g')) || []).length, 3);
   assert.ok(cl.indexOf('## 0.5.1') < cl.indexOf('## 0.5.0') && cl.indexOf('## 0.5.1') >= 0, '0.5.1 entry on top');
-  assert.ok(cl.indexOf('proveitonchain.com') > cl.indexOf('## 0.5.0'), 'old links only in history');
+  assert.ok(cl.indexOf(oldHost) > cl.indexOf('## 0.5.0'), 'old links only in history');
 });
 
 test('O5 docs and examples use the new dashboard, gate.js and docs URLs, never /tokenlock as the homepage', () => {
