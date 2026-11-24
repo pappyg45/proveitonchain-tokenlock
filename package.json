@@ -1,10 +1,10 @@
 {
   "name": "@proveitonchain/tokenlock",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Zero-trust access for the token era. An extra layer in front of your login, admin, or API. Middleware for Next.js and Express, a React sign-in button, and a tiny client for the TOKENLOCK API.",
   "license": "MIT",
   "author": "Prove It Onchain <gotproof@oplanbtc.com>",
-  "homepage": "https://github.com/pappyg45/proveitonchain-tokenlock#readme",
+  "homepage": "https://tokenlock.ai/developers",
   "keywords": [
     "bitcoin",
     "token-gate",

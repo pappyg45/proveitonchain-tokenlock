@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.2 (TOKENLOCK MCP and developer docs on tokenlock.ai)
+
+- The TOKENLOCK-only MCP server is https://tokenlock.ai/mcp (Streamable HTTP, no API key). The four tools are
+  `tokenlock_info`, `check_token_access`, `start_token_signin` and `finish_token_signin`. Setup and a Cursor example:
+  https://tokenlock.ai/developers#mcp.
+- README and package `homepage` point at https://tokenlock.ai/developers. Older changelog advisory links now use the
+  same host (https://tokenlock.ai/security/advisories/2026-11-18).
+- Not an authorization-behavior change: defaults, route matching, policies and fail-closed checks are the same as 0.5.1.
+  The default API origin remains https://tokenlock.ai. The Cloudflare Worker example reports 0.5.2 (header only;
+  behavior unchanged). The PHP drop-in stays at 0.5.1 (not shipped in the npm tarball; unchanged).
+
+
 ## 0.5.1 (default origin: tokenlock.ai)
 
 - The default hosted API origin (`DEFAULT_API`, the React `apiBase`, self-verify `api`, the PHP drop-in's `api_base`,
@@ -170,7 +182,7 @@ No new features. Corrects validation gaps reported by an external reviewer and f
 every exported function (Node SDK, PHP drop-in, Cloudflare worker, hosted API) and fuzzes each one. 0.4.3 is deprecated
 on npm. Regression tests were written first and failed against npm 0.4.3 (`test/correction-044.test.mjs`: 11 of 13
 failed; `php/test/correction-044.php`: 31 of 45 failed; `test/fuzz-exports.test.mjs`: 332 findings; all pass on 0.4.4).
-Advisory: https://proveitonchain.com/security/advisories/2026-11-18#correction-044
+Advisory: https://tokenlock.ai/security/advisories/2026-11-18#correction-044
 
 - **Self-verify `evaluate()` validates before any mode branch** (external review). 0.4.3 returned `allowed: true` from
   the token-mode branch before looking at the resource (a normal resource, `{ pth: '/private' }` or an array path).
@@ -201,7 +213,7 @@ No new features. Corrects a fail-open found by the 0.4.2 production regression r
 empty, `null` or non-string resource field (for example `{ pth: '/admin' }` or `{ path: '' }`) was dropped and the call
 became an identity-only check, which can answer `valid: true` for a protected resource. 0.4.2 is deprecated on npm.
 Regression tests were written first and failed against 0.4.2 (`test/correction-043.test.mjs`: 6 of 8 failed on 0.4.2;
-all pass on 0.4.3). Advisory: https://proveitonchain.com/security/advisories/2026-11-18#correction-043
+all pass on 0.4.3). Advisory: https://tokenlock.ai/security/advisories/2026-11-18#correction-043
 
 - **One strict schema** (`validateResource`) for every authorization entry point: `verifyPass`, `getPass`, `authorize`,
   `TokenlockClient.verifyPass`, the Next.js helpers, the Express/Next middleware, the Cloudflare worker and
@@ -274,7 +286,7 @@ No code changes from 0.4.0: same authorization logic, same tests. Only the versi
 
 ## 0.4.0 (security, breaking: explicit route authorization)
 
-Fixes [security advisory 2026-11-18](https://proveitonchain.com/security/advisories/2026-11-18). No route, method or
+Fixes [security advisory 2026-11-18](https://tokenlock.ai/security/advisories/2026-11-18). No route, method or
 environment is authorized unless a policy explicitly permits it, in the hosted client, the middleware, self-verify and
 the Cloudflare worker example. Identity-only checks are unchanged. See "Upgrading to 0.4.0" in the README.
 

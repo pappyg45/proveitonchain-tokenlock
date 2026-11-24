@@ -22,10 +22,16 @@ NEXT_PUBLIC_TOKENLOCK_SITE_KEY=pk_…
 TOKENLOCK_SECRET_KEY=sk_…
 ```
 
+## Upgrading to 0.5.2 (TOKENLOCK MCP on tokenlock.ai)
+
+Current release: **0.5.2**. Documentation now points at the TOKENLOCK-only MCP server at https://tokenlock.ai/mcp and
+the developer guide at https://tokenlock.ai/developers. Authorization and the default API origin are unchanged from
+0.5.1 (https://tokenlock.ai).
+
 ## Upgrading to 0.5.1 (default origin is now tokenlock.ai)
 
-Current release: **0.5.1**. The default hosted API origin, the `gate.js` URL and the dashboard, docs and advisory links
-are now https://tokenlock.ai. Nothing else changes: authorization, path matching and fail-closed checks are the same as
+The default hosted API origin, the `gate.js` URL and the dashboard, docs and advisory links are now
+https://tokenlock.ai. Nothing else changes: authorization, path matching and fail-closed checks are the same as
 0.5.0. `apiBase` / `api` / `TOKENLOCK_API` still override the origin. 0.5.0 installs that still use the previous default
 origin keep working: that host serves the same `/api/v1/gate/*` and `/api/v1/tokenlock/*` routes.
 
@@ -192,6 +198,20 @@ Self-verify code in versions you installed earlier keeps its old behavior until 
 
 ```bash
 npm install @proveitonchain/tokenlock
+```
+
+## MCP (AI agents)
+
+TOKENLOCK has its own MCP server (Streamable HTTP, no API key) at https://tokenlock.ai/mcp. It exposes four tools
+(`tokenlock_info`, `check_token_access`, `start_token_signin`, `finish_token_signin`) and nothing else. Setup and a
+Cursor example are in the [developer guide](https://tokenlock.ai/developers#mcp):
+
+```json
+{
+  "mcpServers": {
+    "tokenlock": { "url": "https://tokenlock.ai/mcp" }
+  }
+}
 ```
 
 ## 3. Lock your pages (Next.js)
@@ -378,7 +398,7 @@ refused too (`bad_config`). Since 0.4.3 unknown options and authorization fields
 
 ## Plans
 
-Unlimited sign-ins on every plan; plans are priced by monthly active wallets (each wallet that signs in to your sites counts once a month). Free: 1 site, 100 active wallets a month. Starter ($19/mo), Pro ($49/mo or $490/yr) and Business ($149/mo) add sites, active wallets, branding and alerts. Paid in BTC. See https://tokenlock.ai. Going over never breaks your site.
+Unlimited sign-ins on every plan; plans are priced by monthly active wallets (each wallet that signs in to your sites counts once a month). Free: 1 site, 100 active wallets a month. Business ($149/mo) includes 20 sites, 10,000 active wallets, branding and webhooks. Enterprise is a custom contract. Paid in BTC. See https://tokenlock.ai/pricing. Going over never breaks your site.
 
 A successful sign-in (`TokenlockClient.signIn`, `ProveItGate.signIn`) also returns `usage`: `{ month, active_wallets, limit, pct, over, new_wallet, site_signins, signins: 'unlimited', note? }` (type `SignInUsage`). `over` is informational only; sign-ins keep working.
 

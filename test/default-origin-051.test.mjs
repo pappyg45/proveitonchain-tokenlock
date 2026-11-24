@@ -12,12 +12,13 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (p) => readFileSync(join(ROOT, p), 'utf8');
 const NEW = 'https://tokenlock.ai';
 
-test('O1 package.json is 0.5.1 and the PHP drop-in is 0.5.1', () => {
-  assert.equal(JSON.parse(read('package.json')).version, '0.5.1');
+test('O1 package.json, JS VERSION and the packed worker example are 0.5.2; the unchanged PHP drop-in stays 0.5.1', () => {
+  assert.equal(JSON.parse(read('package.json')).version, '0.5.2');
   const lock = JSON.parse(read('package-lock.json'));
-  assert.equal(lock.version, '0.5.1'); assert.equal(lock.packages[''].version, '0.5.1');
+  assert.equal(lock.version, '0.5.2'); assert.equal(lock.packages[''].version, '0.5.2');
+  assert.equal(JSON.parse(read('package.json')).homepage, 'https://tokenlock.ai/developers');
   assert.match(read('php/tokenlock/tokenlock.php'), /define\('TOKENLOCK_PHP', '0\.5\.1'\);/);
-  assert.match(read('examples/cloudflare-worker/worker.js'), /const VERSION = '0\.5\.1';/);
+  assert.match(read('examples/cloudflare-worker/worker.js'), /const VERSION = '0\.5\.2';/);
 });
 
 test('O2 source defaults: DEFAULT_API, React apiBase doc, self-verify fallbacks, worker fallback, PHP api_base / api', () => {
@@ -43,7 +44,7 @@ test('O3 built dist uses https://tokenlock.ai as the default origin (JS and typi
   assert.equal(core.DEFAULT_API, NEW);
 });
 
-test('O4 repo-wide: the previous hosted origin appears only in the three historical CHANGELOG advisory links', () => {
+test('O4 repo-wide: the previous hosted origin does not appear except in the GitHub repo path', () => {
   const oldHost = ['proveitonchain', '.com'].join('');
   const self = 'test/default-origin-051.test.mjs';
   const files = execFileSync('git', ['ls-files'], { cwd: ROOT }).toString().split('\n').filter(Boolean);
@@ -53,11 +54,11 @@ test('O4 repo-wide: the previous hosted origin appears only in the three histori
     let s; try { s = read(f); } catch { continue; }
     s.split('\n').forEach((l, i) => { if (l.replace(/github\.com\/pappyg45\/proveitonchain-tokenlock/g, '').includes(oldHost)) hits.push(`${f}:${i + 1}`); });
   }
-  assert.equal(hits.filter((h) => !h.startsWith('CHANGELOG.md:')).length, 0, hits.join(', '));
+  assert.deepEqual(hits, [], hits.join(', '));
   const cl = read('CHANGELOG.md');
-  assert.equal((cl.match(new RegExp(oldHost.replace('.', '\\.'), 'g')) || []).length, 3);
-  assert.ok(cl.indexOf('## 0.5.1') < cl.indexOf('## 0.5.0') && cl.indexOf('## 0.5.1') >= 0, '0.5.1 entry on top');
-  assert.ok(cl.indexOf(oldHost) > cl.indexOf('## 0.5.0'), 'old links only in history');
+  assert.ok(cl.indexOf('## 0.5.2') < cl.indexOf('## 0.5.1') && cl.indexOf('## 0.5.1') < cl.indexOf('## 0.5.0'), '0.5.2 entry on top');
+  assert.match(cl, /https:\/\/tokenlock\.ai\/mcp/);
+  assert.match(cl, /https:\/\/tokenlock\.ai\/developers#mcp/);
 });
 
 test('O5 docs and examples use the new dashboard, gate.js and docs URLs, never /tokenlock as the homepage', () => {
@@ -71,6 +72,11 @@ test('O5 docs and examples use the new dashboard, gate.js and docs URLs, never /
   assert.match(read('README.md'), /https:\/\/tokenlock\.ai\/docs\/enterprise#timing/);
   assert.match(read('README.md'), /https:\/\/tokenlock\.ai\/\.well-known\/tokenlock-policy-keys\.json/);
   assert.match(read('docs/self-verify-spec.md'), /Web version: https:\/\/tokenlock\.ai\/docs\/self-verify/);
+  assert.match(read('README.md'), /## Upgrading to 0\.5\.2/);
+  assert.match(read('README.md'), /https:\/\/tokenlock\.ai\/mcp/);
+  assert.match(read('README.md'), /https:\/\/tokenlock\.ai\/developers#mcp/);
+  assert.match(read('README.md'), /"tokenlock": \{ "url": "https:\/\/tokenlock\.ai\/mcp" \}/);
+  assert.doesNotMatch(read('README.md'), /proveitonchain\.com\/mcp/);
   assert.match(read('README.md'), /## Upgrading to 0\.5\.1/); assert.match(read('php/README.md'), /## Upgrading to 0\.5\.1/);
 });
 
@@ -96,5 +102,5 @@ test('O7 overrides still win (no behavior change): apiBase, then TOKENLOCK_API, 
     assert.equal(new core.TokenlockClient({ fetch }).apiBase, 'https://env.example.com', 'TOKENLOCK_API');
     assert.equal(new core.TokenlockClient({ fetch, apiBase: 'https://api.example.com' }).apiBase, 'https://api.example.com', 'apiBase beats TOKENLOCK_API');
   } finally { if (saved === undefined) delete process.env.TOKENLOCK_API; else process.env.TOKENLOCK_API = saved; }
-  assert.equal(core.VERSION, '0.5.1');
+  assert.equal(core.VERSION, '0.5.2');
 });
