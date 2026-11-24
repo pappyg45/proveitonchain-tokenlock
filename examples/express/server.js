@@ -1,6 +1,6 @@
 import express from 'express';
-import { tokenlock } from '@proveitonchain/tokenlock/express';
-import { safeNext } from '@proveitonchain/tokenlock';
+import { tokenlock } from '@tokenlock/sdk/express';
+import { safeNext } from '@tokenlock/sdk';
 
 // TOKENLOCK_SECRET_KEY and TOKENLOCK_SITE_KEY come from https://tokenlock.ai/dashboard
 const app = express();

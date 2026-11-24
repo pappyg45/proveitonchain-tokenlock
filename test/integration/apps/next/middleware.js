@@ -1,4 +1,4 @@
-import { tokenlock } from '@proveitonchain/tokenlock/next';
+import { tokenlock } from '@tokenlock/sdk/next';
 
 // Same protection as the other integration apps: /admin and /members (and everything under them), any case.
 export const middleware = tokenlock({ protect: ['/admin/:path*', '/members/:path*'], signInPage: '/signin', environment: 'production' });

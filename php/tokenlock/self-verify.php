@@ -3,7 +3,7 @@
  * TOKENLOCK self-verify for PHP (Enterprise), spec v1: https://tokenlock.ai/docs/self-verify
  * Your server issues the challenge, stores the nonce, verifies the wallet signature locally (GMP, no network) and
  * reads holdings from a source you choose. Our API is optional: only if you pick our holdings provider or pull a
- * signed policy bundle. Same message, policy and pass formats as the Node SDK (@proveitonchain/tokenlock/self-verify).
+ * signed policy bundle. Same message, policy and pass formats as the Node SDK (@tokenlock/sdk/self-verify).
  *
  *   require __DIR__ . '/tokenlock/self-verify.php';
  *   $store = tokenlock_sv_file_store('/var/lib/tokenlock-nonces');

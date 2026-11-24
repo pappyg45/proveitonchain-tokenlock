@@ -1,6 +1,6 @@
 # TOKENLOCK authorization contract
 
-**Version 1.2.0** (@proveitonchain/tokenlock 0.5.0 / TOKENLOCK PHP 0.5.0; 1.1.0 was introduced in 0.4.5). Status: normative.
+**Version 1.2.0** (TOKENLOCK SDK 0.5.0, now published as @tokenlock/sdk / TOKENLOCK PHP 0.5.0; 1.1.0 was introduced in 0.4.5). Status: normative.
 
 This document defines when TOKENLOCK allows an action. Every implementation must give the same decision for the same input:
 - Node self-verify (`evaluate`, `verifyLocalPass`, `checkPass`)

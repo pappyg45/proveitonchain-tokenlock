@@ -176,9 +176,9 @@ test('Cloudflare worker example in Miniflare (workerd) in front of an origin', a
 test('Next.js 15 app (app router + middleware): next build && next start', { skip: process.env.SKIP_NEXT ? 'SKIP_NEXT set' : false, timeout: 600000 }, async () => {
   const src = path.join(HERE, 'apps/next');
   const nm = path.join(src, 'node_modules');
-  mkdirSync(path.join(nm, '@proveitonchain'), { recursive: true });
+  mkdirSync(path.join(nm, '@tokenlock'), { recursive: true });
   const link = (to, from) => { if (!existsSync(from)) symlinkSync(to, from, 'dir'); };
-  link(SDK, path.join(nm, '@proveitonchain/tokenlock'));
+  link(SDK, path.join(nm, '@tokenlock/sdk'));
   for (const m of ['next', 'react', 'react-dom']) link(path.join(SDK, 'node_modules', m), path.join(nm, m));
   const env = { ...process.env, NEXT_TELEMETRY_DISABLED: '1', TOKENLOCK_API: API, TOKENLOCK_SECRET_KEY: SK, TOKENLOCK_SITE_KEY: 'pk_x' };
   const nextBin = path.join(SDK, 'node_modules/next/dist/bin/next');

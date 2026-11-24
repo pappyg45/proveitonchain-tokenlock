@@ -1,4 +1,4 @@
-import { getPass } from '@proveitonchain/tokenlock/next';
+import { getPass } from '@tokenlock/sdk/next';
 
 export const dynamic = 'force-dynamic';
 

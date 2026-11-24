@@ -12,13 +12,14 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (p) => readFileSync(join(ROOT, p), 'utf8');
 const NEW = 'https://tokenlock.ai';
 
-test('O1 package.json, JS VERSION and the packed worker example are 0.5.2; the unchanged PHP drop-in stays 0.5.1', () => {
-  assert.equal(JSON.parse(read('package.json')).version, '0.5.2');
+test('O1 package.json, JS VERSION and the packed worker example are 0.5.3; the unchanged PHP drop-in stays 0.5.1', () => {
+  assert.equal(JSON.parse(read('package.json')).version, '0.5.3');
   const lock = JSON.parse(read('package-lock.json'));
-  assert.equal(lock.version, '0.5.2'); assert.equal(lock.packages[''].version, '0.5.2');
-  assert.equal(JSON.parse(read('package.json')).homepage, 'https://tokenlock.ai/developers');
+  assert.equal(lock.version, '0.5.3'); assert.equal(lock.packages[''].version, '0.5.3');
+  assert.equal(lock.name, '@tokenlock/sdk'); assert.equal(lock.packages[''].name, '@tokenlock/sdk');
+  assert.equal(JSON.parse(read('package.json')).homepage, 'https://tokenlock.ai');
   assert.match(read('php/tokenlock/tokenlock.php'), /define\('TOKENLOCK_PHP', '0\.5\.1'\);/);
-  assert.match(read('examples/cloudflare-worker/worker.js'), /const VERSION = '0\.5\.2';/);
+  assert.match(read('examples/cloudflare-worker/worker.js'), /const VERSION = '0\.5\.3';/);
 });
 
 test('O2 source defaults: DEFAULT_API, React apiBase doc, self-verify fallbacks, worker fallback, PHP api_base / api', () => {
@@ -56,7 +57,7 @@ test('O4 repo-wide: the previous hosted origin does not appear except in the Git
   }
   assert.deepEqual(hits, [], hits.join(', '));
   const cl = read('CHANGELOG.md');
-  assert.ok(cl.indexOf('## 0.5.2') < cl.indexOf('## 0.5.1') && cl.indexOf('## 0.5.1') < cl.indexOf('## 0.5.0'), '0.5.2 entry on top');
+  assert.ok(cl.indexOf('## 0.5.3') < cl.indexOf('## 0.5.2') && cl.indexOf('## 0.5.2') < cl.indexOf('## 0.5.1') && cl.indexOf('## 0.5.1') < cl.indexOf('## 0.5.0'), '0.5.3 entry on top');
   assert.match(cl, /https:\/\/tokenlock\.ai\/mcp/);
   assert.match(cl, /https:\/\/tokenlock\.ai\/developers#mcp/);
 });
@@ -73,6 +74,7 @@ test('O5 docs and examples use the new dashboard, gate.js and docs URLs, never /
   assert.match(read('README.md'), /https:\/\/tokenlock\.ai\/\.well-known\/tokenlock-policy-keys\.json/);
   assert.match(read('docs/self-verify-spec.md'), /Web version: https:\/\/tokenlock\.ai\/docs\/self-verify/);
   assert.match(read('README.md'), /## Upgrading to 0\.5\.2/);
+  assert.match(read('README.md'), /## 0\.5\.3: new package name `@tokenlock\/sdk`/);
   assert.match(read('README.md'), /https:\/\/tokenlock\.ai\/mcp/);
   assert.match(read('README.md'), /https:\/\/tokenlock\.ai\/developers#mcp/);
   assert.match(read('README.md'), /"tokenlock": \{ "url": "https:\/\/tokenlock\.ai\/mcp" \}/);
@@ -84,7 +86,7 @@ test('O6 README and PHP README: no Prove It Onchain prose (the package name is f
   for (const f of ['README.md', 'php/README.md']) assert.doesNotMatch(read(f).replace(/@proveitonchain\/tokenlock/g, ''), /Prove It On ?chain/i, f);
   assert.doesNotMatch(read('src/core.ts'), /Prove It On ?chain/i);
   const pkg = JSON.parse(read('package.json'));
-  assert.equal(pkg.name, '@proveitonchain/tokenlock');
+  assert.equal(pkg.name, '@tokenlock/sdk');
   assert.equal(pkg.author, 'Prove It Onchain <gotproof@oplanbtc.com>', 'author unchanged (question for Garrett)');
   assert.match(read('src/self-verify/index.ts'), /export function proveitonchainProvider\b/);
   assert.match(read('src/self-verify/index.ts'), /name: 'proveitonchain'/);
@@ -102,5 +104,20 @@ test('O7 overrides still win (no behavior change): apiBase, then TOKENLOCK_API, 
     assert.equal(new core.TokenlockClient({ fetch }).apiBase, 'https://env.example.com', 'TOKENLOCK_API');
     assert.equal(new core.TokenlockClient({ fetch, apiBase: 'https://api.example.com' }).apiBase, 'https://api.example.com', 'apiBase beats TOKENLOCK_API');
   } finally { if (saved === undefined) delete process.env.TOKENLOCK_API; else process.env.TOKENLOCK_API = saved; }
-  assert.equal(core.VERSION, '0.5.2');
+  assert.equal(core.VERSION, '0.5.3');
+});
+
+test('R053 package renamed to @tokenlock/sdk: same exports map, examples and docs use the new name only', () => {
+  const pkg = JSON.parse(read('package.json'));
+  assert.equal(pkg.name, '@tokenlock/sdk');
+  assert.deepEqual(Object.keys(pkg.exports), ['.', './next', './express', './react', './package.json', './self-verify']);
+  assert.match(read('README.md'), /^# @tokenlock\/sdk\n/);
+  assert.match(read('README.md'), /npm install @tokenlock\/sdk/);
+  const exFiles = ['examples/next-app/package.json', 'examples/express/package.json', 'examples/next-app/middleware.ts', 'examples/next-app/app/signin/page.tsx',
+    'examples/next-app/app/api/tokenlock/[action]/route.ts', 'examples/next-app/app/members/page.tsx', 'examples/express/server.js', 'examples/self-verify-enterprise.mjs'];
+  for (const f of exFiles) { assert.doesNotMatch(read(f), /@proveitonchain/, f); assert.match(read(f), /@tokenlock\/sdk/, f); }
+  // README: the old name appears only in the 0.5.3 migration section
+  const readme = read('README.md'); const start = readme.indexOf('## 0.5.3: new package name'); const end = readme.indexOf('## Upgrading to 0.5.2');
+  assert.ok(start > 0 && end > start);
+  assert.doesNotMatch(readme.slice(0, start) + readme.slice(end), /@proveitonchain/);
 });

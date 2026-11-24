@@ -1,4 +1,4 @@
-import { SignInWithBitcoin } from '@proveitonchain/tokenlock/react';
+import { SignInWithBitcoin } from '@tokenlock/sdk/react';
 
 export default function SignIn() {
   return (

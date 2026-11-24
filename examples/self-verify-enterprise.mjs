@@ -1,7 +1,7 @@
 /**
  * Complete enterprise self-verify flow (SDK 0.3.3 docs/examples).
  *
- * In an app, import from '@proveitonchain/tokenlock/self-verify'. This file
+ * In an app, import from '@tokenlock/sdk/self-verify'. This file
  * imports the built package in this repo so tests can run the same logic.
  *
  * Shows: a pinned policy-signing key, a configured signed policy source,

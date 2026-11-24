@@ -17,12 +17,12 @@ const tmp = mkdtempSync(path.join(os.tmpdir(), 'tl-next-data-'));
 const freePort = () => new Promise((r) => { const s = net.createServer(); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => r(p)); }); });
 const nap = (ms) => new Promise((r) => setTimeout(r, ms));
 async function run(name, config, urls) {
-  const d = path.join(tmp, name); mkdirSync(path.join(d, 'pages/members'), { recursive: true }); mkdirSync(path.join(d, 'node_modules/@proveitonchain'), { recursive: true });
+  const d = path.join(tmp, name); mkdirSync(path.join(d, 'pages/members'), { recursive: true }); mkdirSync(path.join(d, 'node_modules/@tokenlock'), { recursive: true });
   for (const [m, p] of Object.entries(deps)) symlinkSync(p, path.join(d, 'node_modules', m));
-  symlinkSync(ROOT, path.join(d, 'node_modules/@proveitonchain/tokenlock'));
+  symlinkSync(ROOT, path.join(d, 'node_modules/@tokenlock/sdk'));
   writeFileSync(path.join(d, 'package.json'), '{"name":"x","private":true}');
   writeFileSync(path.join(d, 'next.config.js'), `module.exports = ${JSON.stringify(config)};`);
-  writeFileSync(path.join(d, 'middleware.js'), "import { tokenlock } from '@proveitonchain/tokenlock/next';\nexport default tokenlock({ protect: ['/members', '/members/:path*'], signInPage: '/signin', secretKey: 'sk_' + 'x'.repeat(30) });\nexport const config = { matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'] };\n");
+  writeFileSync(path.join(d, 'middleware.js'), "import { tokenlock } from '@tokenlock/sdk/next';\nexport default tokenlock({ protect: ['/members', '/members/:path*'], signInPage: '/signin', secretKey: 'sk_' + 'x'.repeat(30) });\nexport const config = { matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'] };\n");
   const ssp = (f, secret) => writeFileSync(path.join(d, 'pages', f), `export async function getServerSideProps() { return { props: { s: ${JSON.stringify(secret)} } }; }\nexport default function P({ s }) { return s; }\n`);
   ssp('index.js', 'home'); ssp('signin.js', 'signin'); ssp('members/index.js', 'MEMBERS-SECRET'); ssp('members/x.js', 'MEMBERS-SECRET-X');
   const b = spawnSync(process.execPath, [path.join(deps.next, 'dist/bin/next'), 'build'], { cwd: d, encoding: 'utf8', env: { ...process.env, NEXT_TELEMETRY_DISABLED: '1' } });

@@ -1,4 +1,4 @@
-import { tokenlock } from '@proveitonchain/tokenlock/next';
+import { tokenlock } from '@tokenlock/sdk/next';
 
 // Everything under /members needs a pass. Which tokens unlock it is set in your TOKENLOCK dashboard.
 // tokenOnly: true = a holder site (any wallet holding one of your tokens may open /members). Remove it if you turn on

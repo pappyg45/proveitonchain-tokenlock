@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.3 (new package name: @tokenlock/sdk)
+
+- The SDK is now published as **`@tokenlock/sdk`**: `npm install @tokenlock/sdk`. Imports become `@tokenlock/sdk`,
+  `@tokenlock/sdk/next`, `@tokenlock/sdk/express`, `@tokenlock/sdk/react` and `@tokenlock/sdk/self-verify`.
+- No API change. The code, exports map, subpaths, defaults and fail-closed checks are the same as 0.5.2; only the
+  package name, `VERSION` (0.5.3), the Cloudflare Worker example header, docs and examples change. Package `homepage`
+  is https://tokenlock.ai.
+- `@proveitonchain/tokenlock` is deprecated and gets no new releases. Installed copies (0.5.2 and earlier) keep working.
+  Switch with `npm uninstall @proveitonchain/tokenlock && npm install @tokenlock/sdk` and update the import paths.
+- The PHP drop-in stays at 0.5.1 (only a comment naming the Node package changed; not shipped in the npm tarball).
+
 ## 0.5.2 (TOKENLOCK MCP and developer docs on tokenlock.ai)
 
 - The TOKENLOCK-only MCP server is https://tokenlock.ai/mcp (Streamable HTTP, no API key). The four tools are

@@ -165,7 +165,7 @@ test('A3 cf-worker strictCheck(answer, resource): a malformed resource is refuse
 test('G3 starters: depend on the current release, tokenOnly: true, members page asks for identity explicitly', async () => {
   const [maj, min, pat] = VERSION.split('.').map(Number);
   for (const dir of ['express', 'next-app']) {
-    const range = JSON.parse(read(`examples/${dir}/package.json`)).dependencies['@proveitonchain/tokenlock'];
+    const range = JSON.parse(read(`examples/${dir}/package.json`)).dependencies['@tokenlock/sdk'];
     const m = /^\^(\d+)\.(\d+)\.(\d+)$/.exec(range || '');
     // 0.5.0 RC7 (disclosed U25): "at least 0.4.4" compared as a version, not as patch >= 4 (which only held on 0.4.x);
     // still the current release line (same major.minor, patch not above the current one).

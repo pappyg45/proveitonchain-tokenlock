@@ -333,7 +333,7 @@ async function generic(mod, name, fn) {
   return out;
 }
 
-test(`widened audit: every export of @proveitonchain/tokenlock ${VERSION} is classified and fuzzed`, { timeout: 600000 }, async () => {
+test(`widened audit: every export of @tokenlock/sdk ${VERSION} is classified and fuzzed`, { timeout: 600000 }, async () => {
   const exportsList = [];
   for (const [m, ns] of Object.entries(MOD)) for (const n of Object.keys(ns)) if (n !== '__load_error') exportsList.push([m, n, ns[n]]);
   const unclassified = exportsList.filter(([m, n]) => !classify(m, n)).map(([m, n]) => `${m}.${n}`);

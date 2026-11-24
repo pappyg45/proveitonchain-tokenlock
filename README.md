@@ -1,4 +1,4 @@
-# @proveitonchain/tokenlock
+# @tokenlock/sdk
 
 **Zero-trust access for the token era.** An extra layer in front of your login, admin, or API. Only verified token holders get through.
 
@@ -22,9 +22,22 @@ NEXT_PUBLIC_TOKENLOCK_SITE_KEY=pk_…
 TOKENLOCK_SECRET_KEY=sk_…
 ```
 
+## 0.5.3: new package name `@tokenlock/sdk`
+
+Current release: **0.5.3**. The SDK is now published as **`@tokenlock/sdk`**. Same code, same API, same subpaths
+(`/next`, `/express`, `/react`, `/self-verify`). The old package name `@proveitonchain/tokenlock` is deprecated and
+gets no new releases; existing installs keep working. To switch:
+
+```bash
+npm uninstall @proveitonchain/tokenlock && npm install @tokenlock/sdk
+```
+
+Then change imports from `@proveitonchain/tokenlock…` to `@tokenlock/sdk…` (for example
+`@tokenlock/sdk/next`). Nothing else changes.
+
 ## Upgrading to 0.5.2 (TOKENLOCK MCP on tokenlock.ai)
 
-Current release: **0.5.2**. Documentation now points at the TOKENLOCK-only MCP server at https://tokenlock.ai/mcp and
+0.5.2 documentation now points at the TOKENLOCK-only MCP server at https://tokenlock.ai/mcp and
 the developer guide at https://tokenlock.ai/developers. Authorization and the default API origin are unchanged from
 0.5.1 (https://tokenlock.ai).
 
@@ -197,7 +210,7 @@ Self-verify code in versions you installed earlier keeps its old behavior until 
 ## 2. Install
 
 ```bash
-npm install @proveitonchain/tokenlock
+npm install @tokenlock/sdk
 ```
 
 ## MCP (AI agents)
@@ -219,7 +232,7 @@ Cursor example are in the [developer guide](https://tokenlock.ai/developers#mcp)
 **`middleware.ts`**
 
 ```ts
-import { tokenlock } from '@proveitonchain/tokenlock/next';
+import { tokenlock } from '@tokenlock/sdk/next';
 
 export default tokenlock({
   protect: ['/members/:path*'], // TOKENLOCK decides which paths are protected (canonical, case-insensitive)
@@ -237,7 +250,7 @@ export const config = {
 **`app/api/tokenlock/[action]/route.ts`**: exchanges the pass for an HttpOnly cookie, and signs out
 
 ```ts
-import { tokenlockRoutes } from '@proveitonchain/tokenlock/next';
+import { tokenlockRoutes } from '@tokenlock/sdk/next';
 export const { GET, POST } = tokenlockRoutes();
 ```
 
@@ -246,7 +259,7 @@ export const { GET, POST } = tokenlockRoutes();
 **`app/signin/page.tsx`**
 
 ```tsx
-import { SignInWithBitcoin } from '@proveitonchain/tokenlock/react';
+import { SignInWithBitcoin } from '@tokenlock/sdk/react';
 
 export default function SignIn() {
   return <SignInWithBitcoin siteKey={process.env.NEXT_PUBLIC_TOKENLOCK_SITE_KEY!} redirectTo="/members" />;
@@ -258,7 +271,7 @@ The button opens a wallet picker (Unisat, Xverse, Leather, Horizon and other bro
 ## 5. Who is signed in: `getPass`
 
 ```tsx
-import { getPass } from '@proveitonchain/tokenlock/next';
+import { getPass } from '@tokenlock/sdk/next';
 
 export default async function Members() {
   const pass = await getPass(undefined, { identityOnly: true }); // null, or { address, assets_held, name, expires_at, … }
@@ -272,7 +285,7 @@ Sign out: link to `/api/tokenlock/signout`.
 
 ```js
 import express from 'express';
-import { tokenlock } from '@proveitonchain/tokenlock/express';
+import { tokenlock } from '@tokenlock/sdk/express';
 
 const app = express();
 app.use(tokenlock({ protect: ['/members/:path*'], signInPage: '/signin', tokenOnly: true }));
@@ -293,7 +306,7 @@ The Express middleware also serves `POST /api/tokenlock/session` and `/api/token
 ## Any server: core API
 
 ```ts
-import { verifyPass, getPass, createChallenge, TokenlockClient } from '@proveitonchain/tokenlock';
+import { verifyPass, getPass, createChallenge, TokenlockClient } from '@tokenlock/sdk';
 
 const v = await verifyPass(pass, { secretKey: process.env.TOKENLOCK_SECRET_KEY, identityOnly: true }); // identity only
 if (v.valid) { /* v.address, v.assets_held, v.site_id, v.expires_at */ }
@@ -333,7 +346,7 @@ await client.request('POST', '/api/v1/gate/verify', { pass, identity_only: true 
 Custom server (Express-style handler; the same pattern works in any framework): fail closed on every error, and tell "can't check right now" apart from a config bug.
 
 ```ts
-import { verifyPass, TokenlockError, isUnavailable, denialStatus } from '@proveitonchain/tokenlock';
+import { verifyPass, TokenlockError, isUnavailable, denialStatus } from '@tokenlock/sdk';
 
 async function requireAccess(req, res, next) {
   const pass = readCookie(req, 'tokenlock_pass');
@@ -480,7 +493,7 @@ Spec: [docs/self-verify-spec.md](docs/self-verify-spec.md) · https://tokenlock.
 
 ```js
 import { createChallenge, verifySignIn, verifyLocalPass, fileNonceStore, tokenscanProvider, requireAgreement,
-  proveitonchainProvider, signedPolicy } from '@proveitonchain/tokenlock/self-verify';
+  proveitonchainProvider, signedPolicy } from '@tokenlock/sdk/self-verify';
 
 const store = fileNonceStore('/var/lib/tokenlock-nonces');            // or redisNonceStore(client) for many servers
 const holdings = requireAgreement([tokenscanProvider(), proveitonchainProvider()]); // fail closed if they disagree
@@ -503,7 +516,7 @@ Pin the policy-signing key, pull a signed policy bundle, and enforce **both** `v
 
 ```js
 import { createChallenge, verifySignIn, verifyLocalPass, fileNonceStore,
-  tokenscanProvider, signedPolicy } from '@proveitonchain/tokenlock/self-verify';
+  tokenscanProvider, signedPolicy } from '@tokenlock/sdk/self-verify';
 
 // Pin the key from https://tokenlock.ai/.well-known/tokenlock-policy-keys.json (kid → hex).
 const publicKeys = { [process.env.TOKENLOCK_POLICY_KID]: process.env.TOKENLOCK_POLICY_PUBLIC_KEY };
