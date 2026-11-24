@@ -240,7 +240,8 @@ function tokenlock_sv_get($o, $url, $headers = array())
     return call_user_func($http, $url, $headers, (int) ceil(($o['timeout_ms'] ?? 8000) / 1000));
 }
 
-/** Our hosted lookup (optional). You then trust our reading of the chain. A provider is fn($address, $assets): array. */
+/** Our hosted lookup (optional). You then trust our reading of the chain. A provider is fn($address, $assets): array.
+ *  tokenlock_sv_tokenlock_provider() is the same function (preferred name). The original name is kept so existing call sites keep working. */
 function tokenlock_sv_proveitonchain_provider($o = array())
 {
     $api = rtrim($o['api'] ?? 'https://tokenlock.ai', '/');
@@ -268,6 +269,13 @@ function tokenlock_sv_proveitonchain_provider($o = array())
         }
         return $out;
     };
+}
+
+
+/** Alias of tokenlock_sv_proveitonchain_provider() (same hosted lookup, default api https://tokenlock.ai). */
+function tokenlock_sv_tokenlock_provider($o = array())
+{
+    return tokenlock_sv_proveitonchain_provider($o);
 }
 
 /** Public explorer tokenscan.io (no key): asset owner, then address balances. */

@@ -325,6 +325,9 @@ throws_code(function () use ($http) {
     $p = tokenlock_sv_proveitonchain_provider(array('http' => $http(array('/holdings' => 'throw'))));
     $p('bc1qa', array('GOTPROOF'));
 }, 'lookup_failed', 'proveitonchain provider down fails closed');
+$alias = tokenlock_sv_tokenlock_provider(array('http' => $http(array('/api/v1/tokenlock/holdings?address=bc1qa&assets=GOTPROOF' => array(200, array('holdings' => array('GOTPROOF' => array('held' => true, 'how' => 'balance'))))))));
+$h = $alias('bc1qa', array('GOTPROOF'));
+same(array($h['GOTPROOF']['held']), array(true), 'tokenlock_sv_tokenlock_provider is an alias of the hosted provider');
 
 // cleanup
 foreach (array_merge(glob($dir . '/cache/*') ?: array(), glob($dir . '/*') ?: array()) as $f) {

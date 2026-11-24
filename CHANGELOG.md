@@ -1,5 +1,14 @@
 # Changelog
 
+## PHP 0.5.3 (TOKENLOCK-named drop-in, matches SDK 0.5.3)
+
+- The PHP drop-in is now **0.5.3** (`TOKENLOCK_PHP`). Same behavior as 0.5.1: default `'api_base'` and `gate.js` are
+  https://tokenlock.ai; authorization, path matching and fail-closed checks are unchanged. Docs:
+  https://tokenlock.ai/developers. Repository: https://github.com/pappyg45/tokenlock.
+- `tokenlock_sv_tokenlock_provider()` is an alias of `tokenlock_sv_proveitonchain_provider()` (original name kept so
+  existing call sites keep working). The Node package name in comments is `@tokenlock/sdk`.
+- Not shipped in the npm tarball (`@tokenlock/sdk` 0.5.3 is unchanged). Download: https://tokenlock.ai/tokenlock/tokenlock-php.zip.
+
 ## 0.5.3 (new package name: @tokenlock/sdk)
 
 - The SDK is now published as **`@tokenlock/sdk`**: `npm install @tokenlock/sdk`. Imports become `@tokenlock/sdk`,
@@ -9,7 +18,7 @@
   is https://tokenlock.ai.
 - `@proveitonchain/tokenlock` is deprecated and gets no new releases. Installed copies (0.5.2 and earlier) keep working.
   Switch with `npm uninstall @proveitonchain/tokenlock && npm install @tokenlock/sdk` and update the import paths.
-- The PHP drop-in stays at 0.5.1 (only a comment naming the Node package changed; not shipped in the npm tarball).
+- The PHP drop-in was 0.5.1 in this npm release (not shipped in the tarball; only a comment naming the Node package changed). It was later released as PHP 0.5.3 (see the PHP 0.5.3 entry above).
 
 ## 0.5.2 (TOKENLOCK MCP and developer docs on tokenlock.ai)
 

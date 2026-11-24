@@ -12,13 +12,13 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (p) => readFileSync(join(ROOT, p), 'utf8');
 const NEW = 'https://tokenlock.ai';
 
-test('O1 package.json, JS VERSION and the packed worker example are 0.5.3; the unchanged PHP drop-in stays 0.5.1', () => {
+test('O1 package.json, JS VERSION and the packed worker example are 0.5.3; the PHP drop-in is 0.5.3', () => {
   assert.equal(JSON.parse(read('package.json')).version, '0.5.3');
   const lock = JSON.parse(read('package-lock.json'));
   assert.equal(lock.version, '0.5.3'); assert.equal(lock.packages[''].version, '0.5.3');
   assert.equal(lock.name, '@tokenlock/sdk'); assert.equal(lock.packages[''].name, '@tokenlock/sdk');
   assert.equal(JSON.parse(read('package.json')).homepage, 'https://tokenlock.ai');
-  assert.match(read('php/tokenlock/tokenlock.php'), /define\('TOKENLOCK_PHP', '0\.5\.1'\);/);
+  assert.match(read('php/tokenlock/tokenlock.php'), /define\('TOKENLOCK_PHP', '0\.5\.3'\);/);
   assert.match(read('examples/cloudflare-worker/worker.js'), /const VERSION = '0\.5\.3';/);
 });
 
@@ -53,7 +53,7 @@ test('O4 repo-wide: the previous hosted origin does not appear except in the Git
   for (const f of files) {
     if (f === self) continue;
     let s; try { s = read(f); } catch { continue; }
-    s.split('\n').forEach((l, i) => { if (l.replace(/github\.com\/pappyg45\/proveitonchain-tokenlock/g, '').includes(oldHost)) hits.push(`${f}:${i + 1}`); });
+    s.split('\n').forEach((l, i) => { if (l.replace(/github\.com\/pappyg45\/(?:proveitonchain-tokenlock|tokenlock)/g, '').includes(oldHost)) hits.push(`${f}:${i + 1}`); });
   }
   assert.deepEqual(hits, [], hits.join(', '));
   const cl = read('CHANGELOG.md');

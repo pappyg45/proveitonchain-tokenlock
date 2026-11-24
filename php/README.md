@@ -8,6 +8,13 @@ This drop-in works on PHP 7.4 or newer (shared hosting and cPanel are fine). It 
 
 Which tokens unlock the site is set in your [TOKENLOCK dashboard](https://tokenlock.ai/dashboard), not in this code.
 
+## Upgrading to 0.5.3 (current)
+
+Current release: **0.5.3**, to match TOKENLOCK SDK `@tokenlock/sdk` 0.5.3. Same authorization, path matching and
+fail-closed checks as 0.5.1. The default `'api_base'` remains https://tokenlock.ai. Docs: https://tokenlock.ai/developers.
+`tokenlock_sv_tokenlock_provider()` is an alias of `tokenlock_sv_proveitonchain_provider()` (the original name still works).
+The Node package name in comments is `@tokenlock/sdk`. No other API change.
+
 ## Upgrading to 0.5.1 (default api_base is now tokenlock.ai)
 
 The default `'api_base'` is now https://tokenlock.ai, and `signin.php` loads `gate.js` from there. Nothing else changes:
@@ -16,10 +23,10 @@ origin. A 0.5.0 drop-in that still uses the previous default origin keeps workin
 
 ## Upgrading to 0.5.0 (security release, behavior changes)
 
-Current release: **0.5.0** (the security release prepared as 0.4.5, never published as 0.4.5, plus later review fixes).
+0.5.0 was the security release (prepared as 0.4.5, never published as 0.4.5, plus later review fixes).
 It denies sign-ins that 0.4.4 accepted: with `any_name`, numeric assets, subassets and a balance of a name the wallet
 does not own are refused (`bad_name` / `not_holder`); a `site` option that is not an `http(s)` origin is `bad_site`, a pass
-for another site `wrong_site`. See the CHANGELOG in the npm package / repository. **Upgrade from 0.4.4.** In 0.4.4,
+for another site `wrong_site`. See the CHANGELOG in the npm package (`@tokenlock/sdk`) or the [repository](https://github.com/pappyg45/tokenlock). **Upgrade from 0.4.4.** In 0.4.4,
 `tokenlock_sv_evaluate()` / `tokenlock_sv_verify_local_pass()` read a registered key with no `permissions`, `null`
 permissions, an empty permissions array, or missing / `null` `routes` or `methods` as `array('*')`, so every route and
 method was allowed. Now `routes` and `methods` must each be an explicit list of strings, otherwise that key is refused
@@ -27,7 +34,7 @@ with `policy_invalid` for any request with a resource. `array()` grants nothing;
 `environments` is required too (missing or `null` is `policy_invalid`; `array('*')` = any; `array()` = any, deprecated).
 A key restricted to environments denies a check that names no environment: set `'environment'` in `config.php` (or
 `TOKENLOCK_ENVIRONMENT`). A route with a trailing slash (`'/api/'`) is exact; write `'/api/*'` for a prefix. Identity-only
-checks are unchanged. The one rule for every integration: `AUTHORIZATION-CONTRACT.md` in the npm package / repository.
+checks are unchanged. The one rule for every integration: `AUTHORIZATION-CONTRACT.md` in the npm package (`@tokenlock/sdk`) or the [repository](https://github.com/pappyg45/tokenlock).
 
 ## Upgrading to 0.4.4 (security correction)
 
@@ -335,7 +342,7 @@ https://tokenlock.ai/docs/self-verify
 ```php
 require __DIR__ . '/tokenlock/self-verify.php';
 $store = tokenlock_sv_file_store('/var/lib/tokenlock-nonces');            // outside the web root
-$holdings = tokenlock_sv_require_agreement(array(tokenlock_sv_tokenscan_provider(), tokenlock_sv_proveitonchain_provider()));
+$holdings = tokenlock_sv_require_agreement(array(tokenlock_sv_tokenscan_provider(), tokenlock_sv_tokenlock_provider())); // or tokenlock_sv_proveitonchain_provider(), same function
 $c = tokenlock_sv_create_challenge(array('site' => 'https://shop.example', 'assets' => array('CLUBTOKEN'), 'store' => $store));
 // … the wallet signs $c['message'] …
 $r = tokenlock_sv_verify_sign_in($_POST, array('store' => $store, 'holdings' => $holdings, 'pass_secret' => getenv('MY_PASS_SECRET')));

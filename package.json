@@ -137,9 +137,9 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/pappyg45/proveitonchain-tokenlock.git"
+    "url": "git+https://github.com/pappyg45/tokenlock.git"
   },
   "bugs": {
-    "url": "https://github.com/pappyg45/proveitonchain-tokenlock/issues"
+    "url": "https://github.com/pappyg45/tokenlock/issues"
   }
 }
