@@ -3,9 +3,9 @@
 // a source you choose. Our API is optional: only if you pick our holdings provider or pull a signed policy bundle.
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { schnorr } from '@noble/curves/secp256k1.js';
-import { verifyMessageSignature, decodeAddress, taggedHash } from './btcsig.js';
+import { verifyMessageSignature, decodeAddress, taggedHash, signatureFormatProblem, FORMAT_PROBLEMS } from './btcsig.js';
 import { canonicalPath, validateResource } from '../core.js';
-export { verifyMessageSignature, decodeAddress, _addr } from './btcsig.js';
+export { verifyMessageSignature, decodeAddress, _addr, signatureFormatProblem, FORMAT_PROBLEMS } from './btcsig.js';
 
 export const SPEC_VERSION = 1;
 const iso = (ms: number) => new Date(ms).toISOString();
@@ -442,7 +442,7 @@ export function evaluate(policy: Policy, o: { address: string; held: string[]; r
 }
 
 // ------------------------------------------------------------------ sign-in + local pass (spec §6)
-export interface SignInResult { valid: boolean; code: string; reason: string; address?: string; assets_held?: string[]; pass?: string; expires_at?: string; key_id?: string | null; correlation_id: string }
+export interface SignInResult { valid: boolean; code: string; reason: string; address?: string; assets_held?: string[]; pass?: string; expires_at?: string; key_id?: string | null; correlation_id: string; signature_format?: string }
 const REASONS: Record<string, string> = {
   ok: 'Signed in.', bad_pass: 'Not a valid pass.', route_not_allowed: 'This key is not allowed on this route.', method_not_allowed: 'This key is not allowed to use this method here.', environment_not_allowed: 'This key is not allowed in this environment.', bad_path: 'Not a valid path.', bad_resource: 'Malformed authorization request: pass a valid { path, method } or { identityOnly: true }.', unknown_challenge: 'This sign-in request is unknown or was already used. Start again.', expired: 'This sign-in request expired. Start again.',
   bad_signature: 'The signature does not match this address and message.', bad_address: 'Not a Bitcoin address we support.', not_holder: 'This wallet does not hold the token.',
@@ -464,7 +464,11 @@ export async function verifySignIn(input: { challenge_id: string; address: strin
   if (now > Date.parse(rec.expires_at) + (cfg.clockSkewSeconds ?? 0) * 1000) return out('expired');
   const address = String(input.address || '').trim();
   if (!decodeAddress(address)) return out('bad_address');
-  if (!verifyMessageSignature(address, buildMessage(rec), String(input.signature || ''))) return out('bad_signature', { address });
+  if (!verifyMessageSignature(address, buildMessage(rec), String(input.signature || ''))) {
+    // 0.5.4: a signature refused for its format says so (a wallet sending an unsupported variant shows up at once)
+    const f = signatureFormatProblem(address, String(input.signature || ''));
+    return out('bad_signature', f ? { address, signature_format: f, reason: `Unsupported signature format: ${FORMAT_PROBLEMS[f]}` } : { address });
+  }
   let policy: Policy | null = null;
   if (cfg.policy) { try { policy = await cfg.policy.get(); } catch (e: any) { return out(e?.code === 'policy_expired' || e?.code === 'policy_invalid' ? e.code : 'policy_unavailable', { address }); } }
   const want = [...rec.assets];

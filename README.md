@@ -22,9 +22,18 @@ NEXT_PUBLIC_TOKENLOCK_SITE_KEY=pk_…
 TOKENLOCK_SECRET_KEY=sk_…
 ```
 
+## 0.5.4: wallet signature compatibility
+
+Current release: **0.5.4**. Self-verify now accepts the same wallet signatures as the hosted check: Freewallet's CRLF
+signatures, BIP-322 "full" signatures, wrapped base64 and hex signatures. Malformed or non-standard signatures (BIP-137
+headers outside 27-42, high-S or non-SIGHASH_ALL BIP-322 witnesses) and padded or upper-case addresses are rejected
+everywhere, with a `signature_format` field and a reason that names the problem. The only API addition is
+`signatureFormatProblem` (plus `FORMAT_PROBLEMS`). Details: [CHANGELOG](./CHANGELOG.md) and
+[docs/self-verify-spec.md](./docs/self-verify-spec.md).
+
 ## 0.5.3: new package name `@tokenlock/sdk`
 
-Current release: **0.5.3**. The SDK is now published as **`@tokenlock/sdk`**. Same code, same API, same subpaths
+The SDK is now published as **`@tokenlock/sdk`**. Same code, same API, same subpaths
 (`/next`, `/express`, `/react`, `/self-verify`). The old package name `@proveitonchain/tokenlock` is deprecated and
 gets no new releases; existing installs keep working. To switch:
 

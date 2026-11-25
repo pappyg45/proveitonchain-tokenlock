@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.5.4 (wallet signature compatibility; PHP drop-in 0.5.4)
+
+- **Freewallet**: signatures over the CRLF (`\r\n`) form of an LF challenge now verify in self-verify, as they already do on
+  the hosted check. Every verifier tries the exact message first, then only its LF↔CRLF equivalent; nothing else is
+  normalized, so a trailing space or newline still fails.
+- **BIP-322 full**: a signature that is the whole serialized `to_sign` transaction is accepted when it is exactly the
+  BIP-322 template for the address and message (`bc1q…`, `3…`, `bc1p…`); its witness is checked like a simple signature.
+  Other transactions, a different prevout and script-path Taproot spends are rejected.
+- **Signature encodings**: ASCII whitespace inside the signature (wrapped base64) is ignored; hex (optional `0x`) is accepted
+  as a fallback after base64. Unicode spaces are no longer stripped (Node and PHP now behave the same).
+- **Stricter**, the same in every verifier:
+  - BIP-137 headers outside 27-42 are rejected;
+  - BIP-322 ECDSA witnesses must be strict DER, low-S, with hash type 0x01;
+  - a 65-byte Taproot signature must end in 0x01;
+  - the address is used exactly as given: no trimming, lower-case bech32, at most 100 characters;
+  - signatures over 4096 characters are refused without decoding.
+- **Named format errors**: when a signature is refused for its format, `verifySignIn` answers `bad_signature` with
+  `signature_format` (for example `base64_variant`) and a reason starting "Unsupported signature format:". New exports
+  `signatureFormatProblem` and `FORMAT_PROBLEMS` (PHP: `tokenlock_signature_format_problem`, `tokenlock_format_problems`).
+  The `code` is unchanged, so existing handling keeps working.
+- Shared vectors: `test/fixtures/wallet-sig-vectors.json` (generator `scripts/gen-wallet-sig-vectors.mjs`), used by this SDK,
+  the PHP drop-in and the hosted TOKENLOCK check, including the real Freewallet signature and reserved slots for real
+  Electrum and Sparrow signatures. Spec: `docs/self-verify-spec.md` §2.
+- The PHP drop-in is **0.5.4** (`TOKENLOCK_PHP`) with the same changes. It is not in the npm tarball; the zip at
+  https://tokenlock.ai/tokenlock/tokenlock-php.zip is updated in a separate release.
+- Publishing 0.5.4 also refreshes the npm page's repository link to https://github.com/pappyg45/tokenlock (already in
+  `package.json`; npm only updates it on publish).
+- API additions only: `signatureFormatProblem`, `FORMAT_PROBLEMS` and the optional `signature_format` field on sign-in results.
+
 ## PHP 0.5.3 (TOKENLOCK-named drop-in, matches SDK 0.5.3)
 
 - The PHP drop-in is now **0.5.3** (`TOKENLOCK_PHP`). Same behavior as 0.5.1: default `'api_base'` and `gate.js` are

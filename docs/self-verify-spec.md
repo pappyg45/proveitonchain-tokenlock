@@ -24,7 +24,8 @@ Whatever mode you use, you also trust:
 - **Your nonce store.** Replay protection is yours (§3).
 - **Your pass secret.** Anyone holding it can mint passes (§6).
 - **The code**: this SDK (MIT) and the noble cryptography libraries bundled in it (Node), or the GMP-based verifier
-  (PHP). Both are tested against the same 396 signature vectors, whose expected answers come from the hosted check.
+  (PHP). Both are tested against the same 396 signature vectors, whose expected answers come from the hosted check,
+  and against the shared wallet-format vectors (`test/fixtures/wallet-sig-vectors.json`) the hosted check also passes.
 
 ## 2. Challenge message
 
@@ -48,11 +49,37 @@ is non-default. `Via: self-verify` keeps a self-verify signature from being repl
 way round. Lifetime is 60 s to 30 min (default 10 min).
 
 Accepted signatures are the same as the hosted check:
-- **BIP-322 "simple"** (a base64 witness) for P2WPKH (`bc1q…`), P2SH-P2WPKH (`3…`) and single-key P2TR (`bc1p…`).
+- **BIP-322 "simple"** (the `to_sign` witness stack) for P2WPKH (`bc1q…`), P2SH-P2WPKH (`3…`) and single-key P2TR
+  (`bc1p…`). ECDSA witnesses are exactly [signature, 33-byte key], in strict DER, low-S (S ≤ n/2), with hash type 0x01
+  (SIGHASH_ALL). A Taproot signature is 64 bytes, or 65 bytes ending in 0x01.
+- **BIP-322 "full"** (the whole serialized `to_sign` transaction) for the same address types, accepted only when it is
+  exactly the BIP-322 template for this address and message: nVersion 0, one input spending `to_spend:0` with sequence 0
+  and an empty scriptSig (P2SH-P2WPKH: a single push of `0014<hash160(pubkey)>` that hashes to the address), one output of
+  0 with script `OP_RETURN`, nLockTime 0 and no trailing bytes. Its witness is then checked exactly like a simple
+  signature. Any other transaction, a different prevout, script-path Taproot spends and BIP-322 for `1…` addresses are rejected.
 - **Legacy "Bitcoin Signed Message"** (BIP-137 / Electrum, 65 bytes) for P2PKH (`1…`), P2SH-P2WPKH, P2WPKH and P2TR
-  (BIP-86 tweak of the recovered key). The address-type flag in the header byte is ignored, like the hosted check.
+  (BIP-86 tweak of the recovered key). The header byte must be 27-42; its address-type band is ignored, like the hosted
+  check: the recovered key must derive the address (so Electrum's header 31-34 on `bc1q…` / `3…` works).
 
-Wallets tested: XCP Wallet, Horizon, Unisat, Xverse and Leather. Testnet and signet addresses (`tb1…`, `m/n/2…`) are also accepted.
+Message, encoding and address rules (the same in every TOKENLOCK verifier):
+- The **address** is used exactly as given: at most 100 characters, no surrounding whitespace, bech32 in lower case.
+- The **message** is tried exactly as given, then only its LF↔CRLF equivalent (every `\r\n` ↔ `\n`). Freewallet signs the
+  CRLF form of an LF challenge. Nothing else is normalized: no trimming, no blank-line or Unicode changes, so a trailing
+  space or newline still fails.
+- The **signature** may contain ASCII whitespace (space, tab, CR, LF, FF, VT), which is removed; other characters are not.
+  It is read as strict base64 (standard alphabet, `=` padding required), and if that does not verify, as even-length hex
+  with an optional `0x` (BIP-137: 130 hex characters). Anything else is rejected, and so is any signature longer than
+  4096 characters (real ones are under 1,000).
+
+When a signature is refused because of its **format** (not because it is by the wrong key or for the wrong message), every
+verifier says so. `verifySignIn` (and `tokenlock_sv_verify_sign_in`) answers `bad_signature` with `signature_format` and a
+reason starting "Unsupported signature format:"; `signatureFormatProblem(address, signature)` (PHP
+`tokenlock_signature_format_problem`) gives the code on its own. Codes: `address_format`, `encoding`, `base64_variant`
+(URL-safe, unpadded, or non-ASCII spaces), `bip137_header`, `legacy_length` (a `1…` address needs a 65-byte legacy
+signature), `bip322_full_template`, `bip322_witness_shape`. The hosted check uses the same codes in its sign-in answers,
+attempt log and decision log, so a wallet that sends an unsupported variant shows up at once.
+
+Wallets tested: XCP Wallet, Horizon, Freewallet, Unisat, Xverse and Leather. Testnet and signet addresses (`tb1…`, `m/n/2…`) are also accepted.
 
 ## 3. Nonce store (replay)
 
@@ -171,5 +198,8 @@ unknown `kid`, the wrong site, a rollback, a bad path, a bad pass, or a resource
 ## 9. Test vectors
 
 - `test/fixtures/sig-vectors.json`: 396 signatures (BIP-322 and legacy, valid and tampered), labeled with what the hosted check answers.
+- `test/fixtures/wallet-sig-vectors.json`: wallet formats shared with the hosted check (the real Freewallet CRLF signature,
+  BIP-137 header bands, Electrum-style segwit headers, BIP-322 simple and full, whitespace, hex, negatives, and reserved
+  slots for real Electrum and Sparrow signatures). Regenerate with `scripts/gen-wallet-sig-vectors.mjs`.
 - `test/fixtures/policy-bundle.json`: a bundle signed by the server code (`site_fixture`, seq 7).
 - `test/fixtures/signin-vectors.json`: a fixed challenge, its signatures and a Node-issued pass (used by the PHP tests).

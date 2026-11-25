@@ -241,7 +241,7 @@ tokenlock_clear_cache();
 $r = tokenlock_verify_pass($ENT, array('path' => '/api/x', 'method' => 'GET'));
 expect(empty($r['valid']) && $r['code'] === 'key_revoked', '0.2.0: revoked key is denied on the next check');
 eq(in_array('route_not_allowed', tokenlock_forbidden_codes(), true), true, '0.2.0: route denials answer 403, not a sign-in redirect');
-eq(TOKENLOCK_PHP, '0.5.3', 'version 0.5.3');
+eq(TOKENLOCK_PHP, '0.5.4', 'version 0.5.4');
 // 0.5.1: the default hosted origin is tokenlock.ai; an explicit api_base still overrides it (trailing slash trimmed).
 $tl051 = tokenlock_defaults();
 eq($tl051['api_base'], 'https://tokenlock.ai', '0.5.1 default api_base is https://tokenlock.ai');

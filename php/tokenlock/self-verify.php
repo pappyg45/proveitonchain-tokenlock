@@ -1023,6 +1023,12 @@ function tokenlock_sv_verify_sign_in($input, $cfg, $now = null)
         return $out('bad_address');
     }
     if (!tokenlock_verify_message_signature($address, tokenlock_sv_build_message($rec), (string) ($input['signature'] ?? ''))) {
+        // 0.5.4: a signature refused for its format says so (a wallet sending an unsupported variant shows up at once)
+        $f = tokenlock_signature_format_problem($address, (string) ($input['signature'] ?? ''));
+        if ($f !== null) {
+            $fp = tokenlock_format_problems();
+            return $out('bad_signature', array('address' => $address, 'signature_format' => $f, 'reason' => 'Unsupported signature format: ' . $fp[$f]));
+        }
         return $out('bad_signature', array('address' => $address));
     }
     $policy = null;

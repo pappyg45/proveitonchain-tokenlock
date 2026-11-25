@@ -8,9 +8,17 @@ This drop-in works on PHP 7.4 or newer (shared hosting and cPanel are fine). It 
 
 Which tokens unlock the site is set in your [TOKENLOCK dashboard](https://tokenlock.ai/dashboard), not in this code.
 
-## Upgrading to 0.5.3 (current)
+## Upgrading to 0.5.4 (current)
 
-Current release: **0.5.3**, to match TOKENLOCK SDK `@tokenlock/sdk` 0.5.3. Same authorization, path matching and
+Current release: **0.5.4**, to match TOKENLOCK SDK `@tokenlock/sdk` 0.5.4. Self-verify accepts the same wallet signatures
+as the hosted check: Freewallet's CRLF signatures, BIP-322 "full" signatures, wrapped base64 and hex. BIP-137 headers
+outside 27-42, high-S or non-SIGHASH_ALL BIP-322 witnesses, and padded or upper-case addresses are rejected; the sign-in
+result then carries `signature_format` and a reason naming the problem (`tokenlock_signature_format_problem()`). Run `php test/wallet-sig-vectors.php` (needs GMP) to check.
+No API change.
+
+## Upgrading to 0.5.3
+
+0.5.3 matched TOKENLOCK SDK `@tokenlock/sdk` 0.5.3. Same authorization, path matching and
 fail-closed checks as 0.5.1. The default `'api_base'` remains https://tokenlock.ai. Docs: https://tokenlock.ai/developers.
 `tokenlock_sv_tokenlock_provider()` is an alias of `tokenlock_sv_proveitonchain_provider()` (the original name still works).
 The Node package name in comments is `@tokenlock/sdk`. No other API change.

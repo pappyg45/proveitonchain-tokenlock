@@ -3,5 +3,5 @@
   "private": true,
   "type": "module",
   "scripts": { "start": "node server.js" },
-  "dependencies": { "@tokenlock/sdk": "^0.5.3", "express": "^4.21.0" }
+  "dependencies": { "@tokenlock/sdk": "^0.5.4", "express": "^4.21.0" }
 }

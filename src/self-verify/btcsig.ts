@@ -1,8 +1,13 @@
 // Local Bitcoin message-signature verification for TOKENLOCK self-verify (spec v1, docs/self-verify-spec.md).
-// No network calls. Accepts what the hosted TOKENLOCK check accepts:
-//   - BIP-322 "simple" signatures (base64 witness) for P2WPKH (bc1q…), P2SH-P2WPKH (3…) and single-key P2TR (bc1p…)
-//   - legacy "Bitcoin Signed Message" signatures (BIP-137 / Electrum, 65 bytes) for P2PKH (1…), P2SH-P2WPKH, P2WPKH and
-//     P2TR (key-path, BIP-86 tweak of the recovered key). The header's address-type flag is ignored, like the hosted check.
+// No network calls. Accepts what the hosted TOKENLOCK check accepts (shared vectors: test/fixtures/wallet-sig-vectors.json):
+//   - BIP-322 "simple" (the to_sign witness stack) and "full" (the whole to_sign transaction, accepted only when it is
+//     exactly the BIP-322 template for this address and message) for P2WPKH (bc1q…), P2SH-P2WPKH (3…) and single-key
+//     P2TR (bc1p…). ECDSA witnesses must be low-S, as on the hosted check.
+//   - legacy "Bitcoin Signed Message" signatures (BIP-137 / Electrum, 65 bytes, header 27-42) for P2PKH (1…),
+//     P2SH-P2WPKH, P2WPKH and P2TR (key-path, BIP-86 tweak of the recovered key). The header's address-type flag is
+//     ignored, like the hosted check: the recovered key must derive the address.
+//   - the exact message first, then only its LF<->CRLF equivalent (Freewallet signs the CRLF form of an LF challenge).
+//   - signature encodings: ASCII whitespace removed, then strict base64, else even-length hex with an optional 0x.
 // Mainnet (bc/1/3) and testnet/signet (tb/m/n/2) addresses.
 import { secp256k1, schnorr } from '@noble/curves/secp256k1.js';
 import { sha256 } from '@noble/hashes/sha2.js';
@@ -24,8 +29,9 @@ export function taggedHash(tag: string, ...msgs: Uint8Array[]) { const t = sha25
 
 // ---------------------------------------------------------------- encodings
 const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+/** Strict base64 (standard alphabet, padded). ASCII whitespace (space, tab, CR, LF, FF, VT) is ignored; nothing else is. */
 export function b64decode(s: string): Uint8Array | null {
-  s = String(s || '').trim().replace(/[\r\n\s]/g, '');
+  s = String(s || '').replace(/[ \t\r\n\f\v]+/g, '');
   if (!s || s.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(s)) return null;
   const pad = s.endsWith('==') ? 2 : s.endsWith('=') ? 1 : 0;
   const out = new Uint8Array((s.length / 4) * 3 - pad);
@@ -36,6 +42,14 @@ export function b64decode(s: string): Uint8Array | null {
     if (o < out.length) out[o++] = (n >> 8) & 255;
     if (o < out.length) out[o++] = n & 255;
   }
+  return out;
+}
+/** Even-length hex with an optional 0x prefix; ASCII whitespace ignored. */
+export function hexdecode(s: string): Uint8Array | null {
+  const h = String(s || '').replace(/[ \t\r\n\f\v]+/g, '').replace(/^0x/i, '');
+  if (!h || h.length % 2 !== 0 || !/^[0-9a-fA-F]+$/.test(h)) return null;
+  const out = new Uint8Array(h.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(h.slice(2 * i, 2 * i + 2), 16);
   return out;
 }
 const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
@@ -143,6 +157,27 @@ function parseWitness(b: Uint8Array): Uint8Array[] | null {
     return i === b.length ? items : null;
   } catch { return null; }
 }
+/**
+ * BIP-322 ECDSA witnesses: strict DER (minimal, positive integers, no trailing bytes) and low-S (S <= n/2), like the hosted
+ * check. Checked here explicitly, whatever the curve library's defaults.
+ */
+function derStrictLowS(der: Uint8Array): boolean {
+  if (der.length < 8 || der.length > 72 || der[0] !== 0x30 || der[1] !== der.length - 2) return false;
+  let i = 2; const ints: bigint[] = [];
+  for (let k = 0; k < 2; k++) {
+    if (i + 2 > der.length || der[i] !== 0x02) return false;
+    const len = der[i + 1]; i += 2;
+    if (len < 1 || len > 33 || i + len > der.length) return false;
+    const v = der.slice(i, i + len);
+    if (v[0] & 0x80) return false; // negative
+    if (len > 1 && v[0] === 0 && !(v[1] & 0x80)) return false; // not minimal
+    let n = 0n; for (const x of v) n = (n << 8n) | BigInt(x);
+    ints.push(n); i += len;
+  }
+  if (i !== der.length) return false;
+  const N = P.Fn.ORDER as bigint;
+  return ints[0] > 0n && ints[0] < N && ints[1] > 0n && ints[1] <= N >> 1n;
+}
 function verifyBip322(addr: DecodedAddress, message: string, sig: Uint8Array): boolean {
   const w = parseWitness(sig); if (!w) return false;
   const txid = toSpendTxid(message, addr.script);
@@ -151,8 +186,9 @@ function verifyBip322(addr: DecodedAddress, message: string, sig: Uint8Array): b
     const pub = w[1], pkh = hash160(pub);
     if (addr.type === 'p2wpkh' && !eq(pkh, addr.hash)) return false;
     if (addr.type === 'p2sh' && !eq(hash160(cat(Uint8Array.of(0x00, 0x14), pkh)), addr.hash)) return false;
-    const der = w[0].slice(0, -1); if (der.length < 8) return false;
-    try { return secp256k1.verify(der, bip143Sighash(txid, pkh), pub, { prehash: false, lowS: false, format: 'der' }); } catch { return false; }
+    if (w[0][w[0].length - 1] !== 0x01) return false; // hash type must be SIGHASH_ALL
+    const der = w[0].slice(0, -1); if (!derStrictLowS(der)) return false;
+    try { return secp256k1.verify(der, bip143Sighash(txid, pkh), pub, { prehash: false, lowS: true, format: 'der' }); } catch { return false; }
   }
   if (addr.type === 'p2tr') {
     if (w.length !== 1) return false;
@@ -161,6 +197,120 @@ function verifyBip322(addr: DecodedAddress, message: string, sig: Uint8Array): b
     try { return schnorr.verify(raw, bip341Sighash(txid, addr.script, ht), addr.hash); } catch { return false; }
   }
   return false;
+}
+
+// ---------------------------------------------------------------- BIP-322 full
+interface FullSig { txid: Uint8Array; scriptSig: Uint8Array; items: Uint8Array[] }
+function reader(b: Uint8Array) {
+  let i = 0;
+  const take = (n: number) => { if (n < 0 || i + n > b.length) throw 0; const x = b.slice(i, i + n); i += n; return x; };
+  const vi = () => { const f = take(1)[0]; if (f < 0xfd) return f; if (f === 0xfd) { const x = take(2); return x[0] | (x[1] << 8); } if (f === 0xfe) { const x = take(4); return (x[0] | (x[1] << 8) | (x[2] << 16)) + x[3] * 0x1000000; } throw 0; };
+  const u32 = () => { const x = take(4); return (x[0] | (x[1] << 8) | (x[2] << 16)) + x[3] * 0x1000000; };
+  return { take, vi, u32, done: () => i === b.length };
+}
+/**
+ * Structure of a BIP-322 full signature, independent of the message: nVersion 0 + segwit marker, one input at index 0
+ * with sequence 0, one OP_RETURN output of 0, locktime 0, nothing after it. undefined = not "nVersion 0 + marker" (treat
+ * as simple: a simple witness starts with its item count, never 0); null = such a transaction but not the to_sign shape.
+ */
+function parseFull(b: Uint8Array): FullSig | null | undefined {
+  if (b.length < 10 || b[0] | b[1] | b[2] | b[3] || b[4] !== 0x00 || b[5] !== 0x01) return undefined;
+  try {
+    const r = reader(b); r.take(6);
+    if (r.vi() !== 1) return null;
+    const txid = r.take(32), vout = r.u32(), scriptSig = r.take(r.vi()), seq = r.u32();
+    if (r.vi() !== 1) return null;
+    const value = r.take(8), outScript = r.take(r.vi());
+    const n = r.vi(); if (n < 1 || n > 16) return null;
+    const items: Uint8Array[] = []; for (let k = 0; k < n; k++) items.push(r.take(r.vi()));
+    const lock = r.u32();
+    if (!r.done() || lock !== 0 || seq !== 0 || vout !== 0) return null;
+    if (value.some((x) => x !== 0) || !eq(outScript, Uint8Array.of(0x6a))) return null;
+    return { txid, scriptSig, items };
+  } catch { return null; }
+}
+/** The scriptSig a to_sign input carries: empty, or (P2SH-P2WPKH) one push of 0014<hash160(key)> hashing to the address. */
+function scriptSigOk(addr: DecodedAddress, ss: Uint8Array): boolean {
+  if (addr.type !== 'p2sh') return ss.length === 0;
+  return ss.length === 23 && ss[0] === 0x16 && ss[1] === 0x00 && ss[2] === 0x14 && eq(hash160(ss.slice(1)), addr.hash);
+}
+const encodeWitness = (items: Uint8Array[]) => cat(varint(items.length), ...items.flatMap((x) => [varint(x.length), x]));
+/**
+ * If `b` is a BIP-322 full signature, check it is the to_sign transaction for (addr, message) and return its witness
+ * re-encoded as a simple signature. undefined = not a full signature (try it as simple); null = one that does not match.
+ */
+function fullToSimple(addr: DecodedAddress, message: string, b: Uint8Array): Uint8Array | null | undefined {
+  const f = parseFull(b);
+  if (f === undefined) return undefined;
+  if (!f || addr.type === 'p2pkh' || !scriptSigOk(addr, f.scriptSig) || !eq(f.txid, toSpendTxid(message, addr.script))) return null;
+  return encodeWitness(f.items);
+}
+/** Witness stack items (1-16) of a simple signature, or null. */
+function witnessItems(b: Uint8Array): Uint8Array[] | null {
+  try { const r = reader(b); const n = r.vi(); if (n < 1 || n > 16) return null; const items: Uint8Array[] = []; for (let k = 0; k < n; k++) items.push(r.take(r.vi())); return r.done() ? items : null; } catch { return null; }
+}
+/** The witness shapes every TOKENLOCK verifier accepts (same rule as the hosted check). */
+function witnessShapeOk(type: AddressType, items: Uint8Array[] | null): boolean {
+  if (!items) return false;
+  if (type === 'p2wpkh' || type === 'p2sh') { const s = items[0]; return items.length === 2 && items[1].length === 33 && s.length >= 9 && s[s.length - 1] === 0x01 && derStrictLowS(s.slice(0, -1)); }
+  if (type === 'p2tr') return items.length === 1 && (items[0].length === 64 || (items[0].length === 65 && items[0][64] === 0x01));
+  return false;
+}
+
+// ---------------------------------------------------------------- format problems (named in errors)
+/** Why a signature cannot be checked as written (the same codes and texts as the hosted check). */
+export const FORMAT_PROBLEMS: Record<string, string> = {
+  address_format: 'The address is not a supported Bitcoin address as written (exact text, lower-case bech32, at most 100 characters).',
+  encoding: 'The signature is not base64 or hex.',
+  base64_variant: 'The signature uses a base64 variant we do not accept (URL-safe characters, missing = padding, or non-ASCII spaces). Send standard padded base64.',
+  bip137_header: 'The legacy signature has a header byte outside 27-42.',
+  legacy_length: 'A signature for a 1... address must be a 65-byte legacy (BIP-137) signature; BIP-322 is not supported for these addresses.',
+  bip322_full_template: 'The BIP-322 full signature is not the standard to_sign transaction for this address.',
+  bip322_witness_shape: 'The BIP-322 signature is not a supported single-key witness (strict DER, low-S, SIGHASH_ALL; Taproot key-path only).',
+};
+function addressAsWritten(address: unknown): DecodedAddress | null {
+  if (typeof address !== 'string' || address.length > 100 || address !== address.trim()) return null;
+  if (/^(bc|tb|bcrt)1/i.test(address) && address !== address.toLowerCase()) return null;
+  return decodeAddress(address);
+}
+// Shape only: a P2SH-P2WPKH redeem push for the wrong key is a wrong key, not a format problem.
+const scriptSigShapeOk = (addr: DecodedAddress, ss: Uint8Array) => (addr.type !== 'p2sh' ? ss.length === 0 : ss.length === 23 && ss[0] === 0x16 && ss[1] === 0x00 && ss[2] === 0x14);
+// Unicode whitespace a lenient decoder might skip (explicit, so every implementation agrees).
+const LOOSE_WS = /[\t\n\v\f\r \u0085\u00a0\u1680\u180e\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+/g;
+/** Signatures longer than this (characters) are refused without decoding; real ones are under 1,000. */
+export const MAX_SIGNATURE_LENGTH = 4096;
+function bytesProblem(addr: DecodedAddress, b: Uint8Array): string | null {
+  if (b.length === 65) return b[0] >= 27 && b[0] <= 42 ? null : 'bip137_header';
+  if (addr.type === 'p2pkh') return 'legacy_length';
+  const f = parseFull(b);
+  if (f === null || (f && !scriptSigShapeOk(addr, f.scriptSig))) return 'bip322_full_template';
+  return witnessShapeOk(addr.type, f ? f.items : witnessItems(b)) ? null : 'bip322_witness_shape';
+}
+/**
+ * Why `signature` (for `address`) cannot be checked at all, independent of the message: a key of FORMAT_PROBLEMS, or
+ * null when it is well formed (then a failure means the wrong key or message). Never throws.
+ */
+export function signatureFormatProblem(address: string, signature: string): string | null {
+  try {
+    const addr = addressAsWritten(address); if (!addr) return 'address_format';
+    if (typeof signature !== 'string' || signature.length > MAX_SIGNATURE_LENGTH) return 'encoding';
+    const s = signature.replace(/[ \t\r\n\f\v]+/g, ''), h = s.replace(/^0x/i, '');
+    const isHex = h !== '' && /^[0-9a-fA-F]+$/.test(h) && h.length % 2 === 0;
+    const isB64 = s !== '' && s.length % 4 === 0 && /^[A-Za-z0-9+/]+={0,2}$/.test(s);
+    if (isHex) {
+      const hp = bytesProblem(addr, hexdecode(h) as Uint8Array);
+      if (!hp || !isB64) return hp;
+      return bytesProblem(addr, b64decode(s) as Uint8Array) ? hp : null;
+    }
+    if (isB64) return bytesProblem(addr, b64decode(s) as Uint8Array);
+    let loose = signature.replace(LOOSE_WS, '').replace(/-/g, '+').replace(/_/g, '/');
+    let end = loose.length; while (end > 0 && loose.charCodeAt(end - 1) === 61) end--; loose = loose.slice(0, end); // trailing '=' (linear)
+    if (loose && /^[A-Za-z0-9+/]+$/.test(loose) && loose.length % 4 !== 1) {
+      const b = b64decode(loose + '='.repeat((4 - (loose.length % 4)) % 4));
+      if (b && !bytesProblem(addr, b)) return 'base64_variant';
+    }
+    return 'encoding';
+  } catch { return 'encoding'; }
 }
 
 // ---------------------------------------------------------------- legacy (BIP-137 / Electrum)
@@ -194,12 +344,35 @@ function verifyLegacy(addr: DecodedAddress, message: string, sig: Uint8Array): b
   return false;
 }
 
-/** Does `signature` (base64) prove `address` signed exactly `message`? Never throws. */
+/** The exact message first, then only its LF<->CRLF equivalent (when different). Never trimmed or otherwise normalized. */
+export function messageCandidates(message: string): string[] {
+  const out = [message];
+  const lf = message.replace(/\r\n/g, '\n'); if (lf !== message) out.push(lf);
+  const crlf = lf.replace(/\n/g, '\r\n'); if (crlf !== message) out.push(crlf);
+  return out;
+}
+function verifyBytes(addr: DecodedAddress, message: string, sig: Uint8Array): boolean {
+  if (sig.length === 65) return sig[0] >= 27 && sig[0] <= 42 && verifyLegacy(addr, message, sig);
+  if (addr.type === 'p2pkh') return false; // BIP-322 for 1… addresses is not supported
+  const simple = fullToSimple(addr, message, sig);
+  if (simple === null) return false;
+  return verifyBip322(addr, message, simple || sig);
+}
+/**
+ * Does `signature` prove `address` signed exactly `message` (or its LF<->CRLF equivalent)? `signature` is base64, or hex
+ * (optional 0x) as a fallback; whitespace inside it is ignored. Never throws.
+ */
 export function verifyMessageSignature(address: string, message: string, signature: string): boolean {
-  const addr = decodeAddress(address); if (!addr) return false;
-  const sig = b64decode(signature); if (!sig) return false;
-  if (addr.type === 'p2pkh' || (sig.length === 65 && sig[0] >= 27 && sig[0] <= 42)) return verifyLegacy(addr, message, sig);
-  return verifyBip322(addr, message, sig);
+  try {
+    if (typeof address !== 'string' || typeof message !== 'string' || typeof signature !== 'string' || signature.length > 4096) return false;
+    // Same address strictness as the hosted check: at most 100 characters, no surrounding whitespace, lower-case bech32.
+    if (address.length > 100 || address !== address.trim() || (/^(bc|tb|bcrt)1/i.test(address) && address !== address.toLowerCase())) return false;
+    const addr = decodeAddress(address); if (!addr) return false;
+    const sigs = [b64decode(signature), hexdecode(signature)].filter((x): x is Uint8Array => !!x && x.length > 0);
+    if (!sigs.length) return false;
+    for (const m of messageCandidates(message)) for (const sig of sigs) if (verifyBytes(addr, m, sig)) return true;
+    return false;
+  } catch { return false; }
 }
 
 /** Address helpers for tests and tooling. */
@@ -209,4 +382,4 @@ export const _addr = {
   p2pkh: (pub: Uint8Array) => b58checkEncode(cat(Uint8Array.of(0), hash160(pub))),
   p2sh: (pub33: Uint8Array) => b58checkEncode(cat(Uint8Array.of(5), hash160(cat(Uint8Array.of(0x00, 0x14), hash160(pub33))))),
 };
-export const _internal = { toSpendTxid, bip143Sighash, bip341Sighash, hash160, dsha, cat, sha256 };
+export const _internal = { toSpendTxid, bip143Sighash, bip341Sighash, hash160, dsha, cat, sha256, fullToSimple };

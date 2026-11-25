@@ -38,7 +38,7 @@ const rawPath = (u) => (String(u).match(/^[a-z][a-z0-9+.-]*:\/\/[^/?#]*([^?#]*)/
  * { ok:false, v, code }; throws when the API can't answer. Authorization denials keep the server's reason
  * (route_not_allowed, key_revoked, …); only a malformed answer is 'incomplete_answer'.
  */
-const VERSION = '0.5.3';
+const VERSION = '0.5.4';
 const MAX_ANSWER_BYTES = 65536;
 const REMOVED = ['TOKENLOCK_FAIL_OPEN', 'TOKENLOCK_CHECK_RESOURCE', 'TOKENLOCK_STRICT'];
 /** Config check (0.4.2). Returns null when the settings are usable, else the reason. Never guesses a default for a bad value. */

@@ -1,10 +1,14 @@
 <?php
 /**
  * Local Bitcoin message-signature verification for TOKENLOCK self-verify (spec v1). Needs the GMP extension.
- * Accepts what the hosted TOKENLOCK check accepts:
- *   - BIP-322 "simple" (base64 witness) for P2WPKH (bc1q…), P2SH-P2WPKH (3…) and single-key P2TR (bc1p…)
- *   - legacy "Bitcoin Signed Message" (BIP-137 / Electrum, 65 bytes) for P2PKH, P2SH-P2WPKH, P2WPKH and P2TR (BIP-86
- *     tweak of the recovered key); the header's address-type flag is ignored, like the hosted check.
+ * Accepts what the hosted TOKENLOCK check accepts (shared vectors: test/fixtures/wallet-sig-vectors.json):
+ *   - BIP-322 "simple" (the to_sign witness stack) and "full" (the whole to_sign transaction, accepted only when it is
+ *     exactly the BIP-322 template for this address and message) for P2WPKH (bc1q…), P2SH-P2WPKH (3…) and single-key
+ *     P2TR (bc1p…). ECDSA witnesses must be low-S.
+ *   - legacy "Bitcoin Signed Message" (BIP-137 / Electrum, 65 bytes, header 27-42) for P2PKH, P2SH-P2WPKH, P2WPKH and
+ *     P2TR (BIP-86 tweak of the recovered key); the header's address-type flag is ignored, like the hosted check.
+ *   - the exact message first, then only its LF<->CRLF equivalent (Freewallet signs the CRLF form of an LF challenge).
+ *   - signature encodings: ASCII whitespace removed, then strict base64, else even-length hex with an optional 0x.
  * Also BIP-340 Schnorr verification (used for signed policy bundles). No network calls.
  */
 if (defined('TOKENLOCK_BTCSIG')) {
@@ -522,9 +526,16 @@ function tokenlock_verify_bip322($addr, $message, $sig)
         if ($addr['type'] === 'p2sh' && tokenlock_hash160("\x00\x14" . $pkh) !== $addr['hash']) {
             return false;
         }
+        if (substr($w[0], -1) !== "\x01") {
+            return false; // hash type must be SIGHASH_ALL
+        }
         $rs = tokenlock_parse_der(substr($w[0], 0, -1));
         $Q = TokenlockSecp::parsePub($pub);
         if (!$rs || !$Q) {
+            return false;
+        }
+        // Low-S only (S <= n/2), like the hosted check.
+        if (gmp_cmp($rs[1], gmp_div_q(TokenlockSecp::$n, 2)) > 0) {
             return false;
         }
         $scriptCode = "\x19\x76\xa9\x14" . $pkh . "\x88\xac";
@@ -583,27 +594,334 @@ function tokenlock_verify_legacy($addr, $message, $sig)
     return false;
 }
 
-/** Does $signature (base64) prove $address signed exactly $message? Never throws (except without GMP). */
+/** A little-endian byte reader that throws RuntimeException past the end. */
+function tokenlock_reader($b)
+{
+    $st = new stdClass();
+    $st->b = $b;
+    $st->i = 0;
+    $st->L = strlen($b);
+    return $st;
+}
+function tokenlock_rd_take($st, $n)
+{
+    if ($n < 0 || $st->i + $n > $st->L) {
+        throw new RuntimeException('short');
+    }
+    $x = substr($st->b, $st->i, $n);
+    $st->i += $n;
+    return $x;
+}
+function tokenlock_rd_vi($st)
+{
+    $f = ord(tokenlock_rd_take($st, 1));
+    if ($f < 0xfd) {
+        return $f;
+    }
+    if ($f === 0xfd) {
+        $x = unpack('v', tokenlock_rd_take($st, 2));
+        return $x[1];
+    }
+    if ($f === 0xfe) {
+        $x = unpack('V', tokenlock_rd_take($st, 4));
+        return $x[1];
+    }
+    throw new RuntimeException('varint');
+}
+function tokenlock_rd_u32($st)
+{
+    $x = unpack('V', tokenlock_rd_take($st, 4));
+    return $x[1];
+}
+
+/**
+ * Structure of a BIP-322 full signature, independent of the message: nVersion 0 + segwit marker, one input at index 0
+ * with sequence 0, one OP_RETURN output of 0, locktime 0, nothing after it. false = not "nVersion 0 + marker" (treat as
+ * simple: a simple witness starts with its item count, never 0); null = such a transaction but not the to_sign shape;
+ * else array('txid' => …, 'scriptSig' => …, 'items' => array(…)).
+ */
+function tokenlock_bip322_parse_full($b)
+{
+    if (strlen($b) < 10 || substr($b, 0, 4) !== "\x00\x00\x00\x00" || $b[4] !== "\x00" || $b[5] !== "\x01") {
+        return false;
+    }
+    try {
+        $r = tokenlock_reader($b);
+        tokenlock_rd_take($r, 6);
+        if (tokenlock_rd_vi($r) !== 1) {
+            return null;
+        }
+        $txid = tokenlock_rd_take($r, 32);
+        $vout = tokenlock_rd_u32($r);
+        $scriptSig = tokenlock_rd_take($r, tokenlock_rd_vi($r));
+        $seq = tokenlock_rd_u32($r);
+        if (tokenlock_rd_vi($r) !== 1) {
+            return null;
+        }
+        $value = tokenlock_rd_take($r, 8);
+        $outScript = tokenlock_rd_take($r, tokenlock_rd_vi($r));
+        $n = tokenlock_rd_vi($r);
+        if ($n < 1 || $n > 16) {
+            return null;
+        }
+        $items = array();
+        for ($k = 0; $k < $n; $k++) {
+            $items[] = tokenlock_rd_take($r, tokenlock_rd_vi($r));
+        }
+        $lock = tokenlock_rd_u32($r);
+        if ($r->i !== $r->L || $lock !== 0 || $seq !== 0 || $vout !== 0) {
+            return null;
+        }
+        if ($value !== str_repeat("\x00", 8) || $outScript !== "\x6a") {
+            return null;
+        }
+        return array('txid' => $txid, 'scriptSig' => $scriptSig, 'items' => $items);
+    } catch (Throwable $e) {
+        return null;
+    }
+}
+
+/** The scriptSig a to_sign input carries: empty, or (P2SH-P2WPKH) one push of 0014<hash160(key)> hashing to the address. */
+function tokenlock_bip322_scriptsig_ok($addr, $ss)
+{
+    if ($addr['type'] !== 'p2sh') {
+        return $ss === '';
+    }
+    return strlen($ss) === 23 && substr($ss, 0, 3) === "\x16\x00\x14" && tokenlock_hash160(substr($ss, 1)) === $addr['hash'];
+}
+
+function tokenlock_encode_witness($items)
+{
+    $out = tokenlock_varint(count($items));
+    foreach ($items as $x) {
+        $out .= tokenlock_varint(strlen($x)) . $x;
+    }
+    return $out;
+}
+
+/**
+ * If $b is a BIP-322 full signature, check it is the to_sign transaction for ($addr, $message) and return its witness
+ * re-encoded as a simple signature. false = not a full signature (try it as simple); null = one that does not match.
+ */
+function tokenlock_bip322_full_to_simple($addr, $message, $b)
+{
+    $f = tokenlock_bip322_parse_full($b);
+    if ($f === false) {
+        return false;
+    }
+    if ($f === null || $addr['type'] === 'p2pkh' || !tokenlock_bip322_scriptsig_ok($addr, $f['scriptSig']) || $f['txid'] !== tokenlock_bip322_to_spend($message, $addr['script'])) {
+        return null;
+    }
+    return tokenlock_encode_witness($f['items']);
+}
+
+/** Witness stack items (1-16) of a simple signature, or null. */
+function tokenlock_witness_items($b)
+{
+    try {
+        $r = tokenlock_reader($b);
+        $n = tokenlock_rd_vi($r);
+        if ($n < 1 || $n > 16) {
+            return null;
+        }
+        $items = array();
+        for ($k = 0; $k < $n; $k++) {
+            $items[] = tokenlock_rd_take($r, tokenlock_rd_vi($r));
+        }
+        return $r->i === $r->L ? $items : null;
+    } catch (Throwable $e) {
+        return null;
+    }
+}
+
+/** The witness shapes every TOKENLOCK verifier accepts (same rule as the hosted check). */
+function tokenlock_witness_shape_ok($type, $items)
+{
+    if (!$items) {
+        return false;
+    }
+    if ($type === 'p2wpkh' || $type === 'p2sh') {
+        if (count($items) !== 2 || strlen($items[1]) !== 33 || strlen($items[0]) < 9 || substr($items[0], -1) !== "\x01") {
+            return false;
+        }
+        $rs = tokenlock_parse_der(substr($items[0], 0, -1));
+        TokenlockSecp::init();
+        $n = TokenlockSecp::$n;
+        return $rs !== null && gmp_cmp($rs[0], 0) > 0 && gmp_cmp($rs[0], $n) < 0 && gmp_cmp($rs[1], 0) > 0 && gmp_cmp($rs[1], gmp_div_q($n, 2)) <= 0;
+    }
+    if ($type === 'p2tr') {
+        return count($items) === 1 && (strlen($items[0]) === 64 || (strlen($items[0]) === 65 && $items[0][64] === "\x01"));
+    }
+    return false;
+}
+
+/** Why a signature cannot be checked as written (the same codes and texts as the hosted check). */
+function tokenlock_format_problems()
+{
+    return array(
+        'address_format' => 'The address is not a supported Bitcoin address as written (exact text, lower-case bech32, at most 100 characters).',
+        'encoding' => 'The signature is not base64 or hex.',
+        'base64_variant' => 'The signature uses a base64 variant we do not accept (URL-safe characters, missing = padding, or non-ASCII spaces). Send standard padded base64.',
+        'bip137_header' => 'The legacy signature has a header byte outside 27-42.',
+        'legacy_length' => 'A signature for a 1... address must be a 65-byte legacy (BIP-137) signature; BIP-322 is not supported for these addresses.',
+        'bip322_full_template' => 'The BIP-322 full signature is not the standard to_sign transaction for this address.',
+        'bip322_witness_shape' => 'The BIP-322 signature is not a supported single-key witness (strict DER, low-S, SIGHASH_ALL; Taproot key-path only).',
+    );
+}
+
+function tokenlock_sig_bytes_problem($addr, $b)
+{
+    if (strlen($b) === 65) {
+        $h = ord($b[0]);
+        return $h >= 27 && $h <= 42 ? null : 'bip137_header';
+    }
+    if ($addr['type'] === 'p2pkh') {
+        return 'legacy_length';
+    }
+    $f = tokenlock_bip322_parse_full($b);
+    // Shape only: a P2SH-P2WPKH redeem push for the wrong key is a wrong key, not a format problem.
+    $shapeOk = is_array($f) && ($addr['type'] !== 'p2sh' ? $f['scriptSig'] === '' : strlen($f['scriptSig']) === 23 && substr($f['scriptSig'], 0, 3) === "\x16\x00\x14");
+    if ($f === null || (is_array($f) && !$shapeOk)) {
+        return 'bip322_full_template';
+    }
+    return tokenlock_witness_shape_ok($addr['type'], is_array($f) ? $f['items'] : tokenlock_witness_items($b)) ? null : 'bip322_witness_shape';
+}
+
+/**
+ * Why $signature (for $address) cannot be checked at all, independent of the message: a key of
+ * tokenlock_format_problems(), or null when it is well formed (then a failure means the wrong key or message).
+ */
+function tokenlock_signature_format_problem($address, $signature)
+{
+    try {
+        if (!is_string($address) || strlen($address) > 100 || $address !== trim($address)
+            || (preg_match('/^(bc|tb|bcrt)1/i', $address) && $address !== strtolower($address))) {
+            return 'address_format';
+        }
+        $addr = tokenlock_decode_address($address);
+        if (!$addr) {
+            return 'address_format';
+        }
+        if (!is_string($signature) || strlen($signature) > 4096 * 4) {
+            return 'encoding';
+        }
+        if (function_exists('mb_strlen') && @mb_strlen($signature, 'UTF-8') > 4096) {
+            return 'encoding';
+        }
+        $s = preg_replace('/[ \t\r\n\f\x0B]+/', '', $signature);
+        $h = preg_replace('/^0x/i', '', $s);
+        $isHex = $h !== '' && preg_match('/^[0-9a-fA-F]+$/', $h) && strlen($h) % 2 === 0;
+        $isB64 = $s !== '' && strlen($s) % 4 === 0 && preg_match('/^[A-Za-z0-9+\/]+={0,2}$/', $s);
+        if ($isHex) {
+            $hp = tokenlock_sig_bytes_problem($addr, hex2bin($h));
+            if ($hp === null || !$isB64) {
+                return $hp;
+            }
+            return tokenlock_sig_bytes_problem($addr, base64_decode($s, true)) !== null ? $hp : null;
+        }
+        if ($isB64) {
+            return tokenlock_sig_bytes_problem($addr, base64_decode($s, true));
+        }
+        // Not clean: would a lenient decoder have read it as a well-formed signature? Then name the variant.
+        // Unicode whitespace a lenient decoder might skip (explicit, so every implementation agrees).
+        $loose = preg_replace('/[\x{0009}-\x{000D}\x{0020}\x{0085}\x{00A0}\x{1680}\x{180E}\x{2000}-\x{200A}\x{2028}\x{2029}\x{202F}\x{205F}\x{3000}\x{FEFF}]+/u', '', $signature);
+        if ($loose === null) {
+            $loose = preg_replace('/[ \t\r\n\f\x0B]+/', '', $signature);
+        }
+        $loose = rtrim(strtr($loose, '-_', '+/'), '=');
+        if ($loose !== '' && preg_match('/^[A-Za-z0-9+\/]+$/', $loose) && strlen($loose) % 4 !== 1) {
+            $b = base64_decode($loose . str_repeat('=', (4 - strlen($loose) % 4) % 4), true);
+            if ($b !== false && $b !== '' && tokenlock_sig_bytes_problem($addr, $b) === null) {
+                return 'base64_variant';
+            }
+        }
+        return 'encoding';
+    } catch (Throwable $e) {
+        return 'encoding';
+    }
+}
+
+/** The exact message first, then only its LF<->CRLF equivalent (when different). Never trimmed or otherwise normalized. */
+function tokenlock_message_candidates($message)
+{
+    $out = array($message);
+    $lf = str_replace("\r\n", "\n", $message);
+    if ($lf !== $message) {
+        $out[] = $lf;
+    }
+    $crlf = str_replace("\n", "\r\n", $lf);
+    if ($crlf !== $message) {
+        $out[] = $crlf;
+    }
+    return $out;
+}
+
+/** Signature bytes to try: strict base64 (standard alphabet, padded), then even-length hex with an optional 0x. */
+function tokenlock_signature_candidates($signature)
+{
+    $s = preg_replace('/[ \t\r\n\f\x0B]+/', '', $signature);
+    $out = array();
+    if ($s !== '' && strlen($s) % 4 === 0 && preg_match('/^[A-Za-z0-9+\/]+={0,2}$/', $s)) {
+        $b = base64_decode($s, true);
+        if ($b !== false && $b !== '') {
+            $out[] = $b;
+        }
+    }
+    $h = preg_replace('/^0x/i', '', $s);
+    if ($h !== '' && strlen($h) % 2 === 0 && preg_match('/^[0-9a-fA-F]+$/', $h)) {
+        $out[] = hex2bin($h);
+    }
+    return $out;
+}
+
+function tokenlock_verify_signature_bytes($addr, $message, $sig)
+{
+    if (strlen($sig) === 65) {
+        $h = ord($sig[0]);
+        return $h >= 27 && $h <= 42 && tokenlock_verify_legacy($addr, $message, $sig);
+    }
+    if ($addr['type'] === 'p2pkh') {
+        return false; // BIP-322 for 1… addresses is not supported
+    }
+    $simple = tokenlock_bip322_full_to_simple($addr, $message, $sig);
+    if ($simple === null) {
+        return false;
+    }
+    return tokenlock_verify_bip322($addr, $message, $simple === false ? $sig : $simple);
+}
+
+/**
+ * Does $signature prove $address signed exactly $message (or its LF<->CRLF equivalent)? $signature is base64, or hex
+ * (optional 0x) as a fallback; whitespace inside it is ignored. Never throws (except without GMP).
+ */
 function tokenlock_verify_message_signature($address, $message, $signature)
 {
     TokenlockSecp::init();
+    if (!is_string($address) || !is_string($message) || !is_string($signature)) {
+        return false;
+    }
+    // Signatures over 4096 characters are refused without decoding (real ones are under 1,000).
+    if (strlen($signature) > 4096 && (!function_exists('mb_strlen') || mb_strlen($signature, 'UTF-8') > 4096)) {
+        return false;
+    }
+    // Same address strictness as the hosted check: at most 100 characters, no surrounding whitespace, lower-case bech32.
+    if (strlen($address) > 100 || $address !== trim($address) || (preg_match('/^(bc|tb|bcrt)1/i', $address) && $address !== strtolower($address))) {
+        return false;
+    }
     $addr = tokenlock_decode_address($address);
     if (!$addr) {
         return false;
     }
-    $s = preg_replace('/\s+/', '', (string) $signature);
-    if ($s === '' || strlen($s) % 4 !== 0 || !preg_match('/^[A-Za-z0-9+\/]+={0,2}$/', $s)) {
-        return false;
-    }
-    $sig = base64_decode($s, true);
-    if ($sig === false || $sig === '') {
-        return false;
-    }
     try {
-        if ($addr['type'] === 'p2pkh' || (strlen($sig) === 65 && ord($sig[0]) >= 27 && ord($sig[0]) <= 42)) {
-            return tokenlock_verify_legacy($addr, (string) $message, $sig);
+        $sigs = tokenlock_signature_candidates($signature);
+        foreach (tokenlock_message_candidates($message) as $m) {
+            foreach ($sigs as $sig) {
+                if (tokenlock_verify_signature_bytes($addr, $m, $sig)) {
+                    return true;
+                }
+            }
         }
-        return tokenlock_verify_bip322($addr, (string) $message, $sig);
+        return false;
     } catch (Throwable $e) {
         return false;
     }
